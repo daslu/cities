@@ -200,21 +200,22 @@
 
 
 (defn city-component [side]
-  (if-let [cities-map (-> @app-state :cities-map)]
-    (let [city (-> @app-state side :code cities-map :name)]
-      (do
-        [:div {:style {:display "inline-block"
-                       :padding "30px"
-                       :width 500}}
-         [:h3 city]
-         [:div
-          (let [chart-spec (-> @app-state
-                               side
-                               :chart-spec)]
-            [chart-component
-             (str "chart_" (name side))
-             side
-             chart-spec])]]))))
+  (or (if-let [cities-map (-> @app-state :cities-map)]
+        (let [city (-> @app-state side :code cities-map :name)]
+          [:h3 city]
+          [:div {:style {:display "inline-block"
+                         :padding "30px"
+                         :width 500}}
+           [:h3 city]
+           [:div
+            (let [chart-spec (-> @app-state
+                                 side
+                                 :chart-spec)]
+              [chart-component
+               (str "chart_" (name side))
+               side
+               chart-spec])]]))
+      [:h3 "..."]))
 
 (defn comparison-component []
   (if-let [cities-map (-> @app-state :cities-map)]
@@ -387,12 +388,20 @@
                            (req-colors char val (get-period)))))
                    "")]]
      [city-component :right]
-     [city-component :left]]))
+     [city-component :left]
+     [:h4 {:style {:direction "ltr"}}
+      (pr-str
+       (or (if-let [cities-map (-> @app-state :cities-map)]
+             (-> @app-state :left :code (->) cities-map :name
+                 ))
+           nil))
+      ]]))
 
 ;;start the app
 
-(fw/watch-and-reload
- :jsload-callback (fn []
-                    (reagent/render-component [app]
-                          (.getElementById js/document "main-area"))))
+;; (fw/watch-and-reload
+;;  :jsload-callback (fn []
+;;                     ))
 
+(reagent/render-component [app]
+                          (.getElementById js/document "main-area"))
