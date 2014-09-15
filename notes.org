@@ -1,0 +1,11 @@
+* TODO colored map
+* TODO slided colored map
+* TODO comparisons
+* TODO upload
+* TODO test
+* TODO time series
+* TODO slided histograms
+* TODO improve plots
+* TODO think about vis
+* TODO doc
+* TODO axis names
