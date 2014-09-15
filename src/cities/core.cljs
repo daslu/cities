@@ -14,7 +14,8 @@
 
 ;; define your app data so that it doesn't get over-written on reload
 (defonce app-state (atom {:left {:code 70}
-                          :right {:code 2800}}))
+                          :right {:code 2800}
+                          :comparison {}}))
 (def doc (atom {:char "מוצא"
                 :val "אפריקה"
                 :period-type "היגרו לישוב בתקופה מסוימת"
@@ -62,7 +63,7 @@
    "2005 ויותר"])
 
 
-(defn draw-chart [{:keys [data-series div bounds x-axis y-axis plot]}]
+(defn draw-chart [{:keys [colors data-series div bounds x-axis y-axis plot]}]
   (let [{:keys [id width height]} div
         Chart        (.-chart js/dimple)
         svg          (.newSvg js/dimple (str "#" id) width height)
@@ -78,13 +79,15 @@
                               plot
                               (clj->js [x y]))]
             (.addOrderRule x "x")
-            (aset s "data" (clj->js data)))))
+            (aset s "data" (clj->js data))
+            (if-let [color (colors name)]
+              (.assignColor dimple-chart name color)))))
     (.addLegend dimple-chart "60%" "10%" "40%" "40%" "left")
     (.draw dimple-chart)))
 
-(defn get-chart-spec-with-div [id spec]
-  (assoc spec
-    :div {:id id :width "100%" :height 400}))
+(defn get-chart-spec-with-id [id spec]
+  (assoc-in spec
+            [:div :id] id))
 
 
 (defn chart-component [id side chart-spec]
@@ -101,7 +104,7 @@
                                (while (.hasChildNodes n)
                                  (.removeChild n (.-lastChild n)))
                                (if spec
-                                 (draw-chart (get-chart-spec-with-div
+                                 (draw-chart (get-chart-spec-with-id
                                               id spec))))))]
       (reagent/create-class
        {:render setup
@@ -146,11 +149,11 @@
 
 (defn map-component [id]
   (let [colors (:colors @app-state)
-        setup (fn [] [:div {:style {:height 1000
+        setup (fn [] [:div {:style {:height 1200
                                    :width 400
                                    :position "relative"
                                    :display "inline-block"
-                                   :padding "10px"}
+                                   :padding "5px"}
                            :react-key id ;; ensure React knows this is non-reusable
                            :ref id ;; label it so we can retrieve it via get-node
                            :id id}])
@@ -183,7 +186,7 @@
       ;; else
       (if (not (@eval-chans code-string))
         (let [ch (chan 1)]
-          (println ["eval" code-string])
+          ;; (println ["eval" code-string])
           (POST "/eval" {:params code-string
                          :handler (fn [response]
                                     (put! ch response)
@@ -205,7 +208,7 @@
         (let [city (-> @app-state side :code cities-map :name)]
           [:h3 city]
           [:div {:style {:display "inline-block"
-                         :padding "30px"
+                         :padding "5px"
                          :width "30%"}}
            [:h3 city]
            [:div
@@ -223,11 +226,11 @@
     (let [two-cities (for [side [:left :right]]
                        (-> @app-state side :code cities-map :name))]
       [:div {:style {:display "inline-block"
-                     :padding "30px"
-                     :width 1000}}
+                     :padding "5px"}}
        [:h3 "השוואה"]
        [:div
-        [chart-component (str "chart_comparison")]]])))
+        [chart-component
+         (str "chart_comparison")]]])))
 
 
 (defn render-cities! [themap colors]
@@ -284,7 +287,12 @@
     :freq (req-eval path
               (list 'cities.data/get-freqs city-code (char-to-key char) period)
               (fn [freqs]
-                {:bounds {:x "5%" :y "15%" :width "80%" :height "50%"}
+                {:colors {"כל השאר"
+                          "#9999ff"
+                          "ערך נבחר"
+                          "#ff9999"}
+                 :div {:width "90%" :height 400}
+                 :bounds {:x "5%" :y "15%" :width "80%" :height "50%"}
                  :x-axis "x" ;;char
                  :y-axis "y" ;;"שכיחות"
                  :plot js/dimple.plot.bar
@@ -293,16 +301,75 @@
                                "ערך נבחר" (filter #(= (:x %) val)
                                                   freqs)}}))))
 
+(defn req-comparison-chart [path city-names-by-code type char val period]
+  (case type
+    :freq (req-eval path
+                    (into {} (for [[city-code city-name] city-names-by-code]
+                               {city-name (list 'cities.data/get-freqs city-code (char-to-key char) period)}))
+                    (fn [freqs-by-city-name]
+                      (do
+                        (println (for [[city-name freqs] freqs-by-city-name]
+                                   {(str city-name ": כל השאר")
+                                    (->> freqs
+                                         (filter #(not= (:x %) val))
+                                         (map (fn [xy]
+                                                (update-in xy [:x] #(str " " city-name))))
+                                         vec)
+                                    (str city-name ": ערך נבחר")
+                                    (->> freqs
+                                         (filter #(= (:x %) val))
+                                         (map (fn [xy]
+                                                (update-in xy [:x] #(str " " city-name))))
+                                         vec)}))
+                        {:colors {(first (keys freqs-by-city-name)) "#339933"
+                                  (second (keys freqs-by-city-name)) "#663366"}
+                         :div {:width "60%" :height 400}
+                         :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
+                         :x-axis "x" ;;char
+                         :y-axis "y" ;;"שכיחות"
+                         :plot js/dimple.plot.bar
+                         :data-series (apply conj
+                                             (for [[city-name freqs] freqs-by-city-name]
+                                               {(str city-name)
+                                                (->> freqs
+                                                     (map (fn [xy]
+                                                            (update-in xy [:x] #(str % " " city-name)))))}))
+                         ;; (apply conj
+                         ;;        (for [[city-name freqs] freqs-by-city-name]
+                         ;;          {(str city-name ": כל השאר")
+                         ;;           (->> freqs
+                         ;;                (filter #(not= (:x %) val))
+                         ;;                (map (fn [xy]
+                         ;;                       (update-in xy [:x] #(str % " " city-name)))))
+                         ;;           (str city-name ": ערך נבחר")
+                         ;;           (->> freqs
+                         ;;                (filter #(= (:x %) val))
+                         ;;                (map (fn [xy]
+                         ;;                       (update-in xy [:x] #(str % " " city-name)))))}))
+                         })))))
+
 (defn req-charts [char val period]
-  (doseq [side [:left :right]]
-    (do
-      (if-let [city-code (-> @app-state side :code)]
-        (req-chart [side :chart-spec]
-                   city-code
-                   :freq
-                   char
-                   val
-                   period)))))
+  (do (doseq [side [:left :right]]
+        (do
+          (if-let [city-code (-> @app-state side :code)]
+            (req-chart [side :chart-spec]
+                       city-code
+                       :freq
+                       char
+                       val
+                       period))))
+      (if-let [cities-map (:cities-map @app-state)]
+        (do
+          (let [city-codes (map (comp :code @app-state)
+                                [:left :right])]
+            (if (every? identity city-codes)
+              (let [city-names-by-code (into {}
+                                             (for [city-code city-codes]
+                                               {city-code (-> city-code cities-map :name)}))]
+                (req-comparison-chart [:comparison :chart-spec]
+                                      city-names-by-code
+                                      :freq
+                                      char val period))))))))
 
 (defn req-colors [char val period]
   (req-eval [:colors]
@@ -312,17 +379,17 @@
 (defn chooser-component [path values title]
   (let [option (fn [val]
                         [:input {:style {:display "inline-block"
-                                         :padding "10px"
+                                         :padding "5px"
                                          :background (if (= (get-in @doc path)
                                                             val)
-                                                       "#ee7777"
-                                                       "#cccccc")}
+                                                       "#ff9999"
+                                                       "#9999ff")}
                                  :type "button" :value val
                                  :on-click (fn []
                                              (swap! doc assoc-in path val))}])]
     [:div
      [:h4 {:style {:display "inline-block"
-                         :padding "10px"}}
+                         :padding "5px"}}
       (str title ":")]
      (for [val values]
        [option val])]))
@@ -331,20 +398,20 @@
 (defn slider-component [path values title]
   (let [values (vec values)]
     [:div {:style {:width 1500}}
+     [chooser-component path values title]
      [:h4 {:style {:display "inline-block"
-                   :padding "10px"}}
+                   :padding "5px"
+                   :color "#aaaaaa"}}
       (str title ":")]
      [:input {:style {:display "inline-block"
-                      :padding "10px"
-                      :width "400px"}
+                      :padding "5px"
+                      :width "800px"}
               :type "range" :min 0 :max (dec (count values))
               :on-keypress #(js/alert "A")
               :on-change #(do
                             (swap! doc assoc-in
                                    path (values (-> % .-target .-value))))}]
-     [:h4 {:style {:display "inline-block"
-                   :padding "10px"}}
-      (get-in @doc path)]]))
+     ]))
 
 (req-eval [:cities-map]
           '(cities.data/cities-map)
@@ -367,7 +434,7 @@
                    :direction "rtl"
                    :background-color "#aaaaaa"}}
      [:h1 {:style {:background-color "#dddddd"
-                   :padding "20px"}}
+                   :padding "5px"}}
       "ויזואליזציה של תנועות אוכלוסיה ליישובים שונים לאורך השנים"]
      [help-component]
      [:p (if-let [themap (:map @app-state)]
@@ -378,44 +445,54 @@
              "."))]
      [:div {:style {:float "right"}}
       [map-component "map"]]
-     [chooser-component
-      [:period-type]
-      ["כל האוכלוסיה"
-       "היגרו לישוב בתקופה מסוימת"]
-      "אוכלוסיה"]
-     (if (= "היגרו לישוב בתקופה מסוימת" (@doc :period-type))
-       [:div
-        [slider-component
-         [:chosen-period]
-         periods-entered
-         "תקופה"]
+     [:div
+      [chooser-component
+       [:char]
+       ["דת" "מוצא"]
+       "מאפיין לניתוח"]
+      (if-let [possible-values (@app-state :possible-values)]
         [chooser-component
-         [:chosen-period]
-         periods-entered
-         "תקופה"]])
-     [chooser-component
-      [:char]
-      ["דת" "מוצא"]
-      "מאפיין לניתוח"]
-     (if-let [possible-values (@app-state :possible-values)]
-       [chooser-component
-        [:val]
-        (-> @doc :char char-to-key possible-values vec)
-        "ערך נבחר"])
-     [:div [:p (do (if-let [char (@doc :char)]
-                     (if-let [val (@doc :val)]
-                       (do (req-charts char val (get-period))
-                           (req-colors char val (get-period)))))
-                   "")]]
-     [city-component :right]
-     [city-component :left]
-     [:h4 {:style {:direction "ltr"}}
-      (pr-str
-       (or (if-let [cities-map (-> @app-state :cities-map)]
-             (-> @app-state :left :code (->) cities-map :name
-                 ))
-           nil))
-      ]]))
+         [:val]
+         (-> @doc :char char-to-key possible-values vec)
+         "ערך נבחר"])
+      [chooser-component
+       [:period-type]
+       ["כל האוכלוסיה"
+        "היגרו לישוב בתקופה מסוימת"]
+       "אוכלוסיה"]
+      (if (= "היגרו לישוב בתקופה מסוימת" (@doc :period-type))
+        [:div
+         [slider-component
+          [:chosen-period]
+          periods-entered
+          "תקופה"]])
+      [:div [:p (do (if-let [char (@doc :char)]
+                      (if-let [val (@doc :val)]
+                        (do (req-charts char val (get-period))
+                            (req-colors char val (get-period)))))
+                    "")]]
+      [city-component :right]
+      [city-component :left]
+      (if-let [chart-spec (-> @app-state :comparison :chart-spec)]
+        [:div 
+         [:h3 {:style {:display "inline-block"
+                       :padding "5px"}}
+          "השוואה"]
+         [chart-component
+          "comparison"
+          :comparison
+          chart-spec]
+         ;; [:h4 {:style {:direction "ltr"}} (pr-str (dissoc chart-spec :plot))]
+         ])]
+     ;; [:h4 (pr-str (keys @app-state))]
+     ;; [:h4 {:style {:direction "ltr"}}
+     ;;  (pr-str
+     ;;   (or (if-let [cities-map (-> @app-state :cities-map)]
+     ;;         (-> @app-state :left :code (->) cities-map :name
+     ;;             ))
+     ;;       nil))
+     ;;  ]
+     ]))
 
 ;;start the app
 
