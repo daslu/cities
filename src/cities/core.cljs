@@ -15,9 +15,10 @@
 ;; define your app data so that it doesn't get over-written on reload
 (defonce app-state (atom {:left {:code 70}
                           :right {:code 2800}}))
-(def doc (atom {:char "דת"
-                :val "יהודי"
-                :period "הכל"}))
+(def doc (atom {:char "מוצא"
+                :val "אפריקה"
+                :period-type "היגרו לישוב בתקופה מסוימת"
+                :chosen-period "1948-1954"}))
 
 (def ordered-values
   {:religion ["יהודי"
@@ -249,17 +250,17 @@
               (drop-circle themap place (colors (:code city)))))))))
 
 (defn help-button [show-help?]
-  [:h2 [:input {:type "button"
+  [:h4 [:input {:type "button"
                 :style {:background-color "#99dd99"}
                 :value (if @show-help?
-                         "להסתיר הוראות?"
-                         "להציג הוראות?")
+                         "להסתיר מבוא?"
+                         "להציג מבוא?")
                 :on-click #(swap! show-help? not)}]])
 
 
 (def help
   [:div {:style {:background-color "#dddddd"}}
-   [:h2 "הוראות"]
+   [:h2 "מבוא"]
    [:h4 "שלום."
     ;; "
     ;; רקע על המאגר
@@ -320,7 +321,7 @@
                                  :on-click (fn []
                                              (swap! doc assoc-in path val))}])]
     [:div
-     [:h3 {:style {:display "inline-block"
+     [:h4 {:style {:display "inline-block"
                          :padding "10px"}}
       (str title ":")]
      (for [val values]
@@ -330,7 +331,7 @@
 (defn slider-component [path values title]
   (let [values (vec values)]
     [:div {:style {:width 1500}}
-     [:h3 {:style {:display "inline-block"
+     [:h4 {:style {:display "inline-block"
                    :padding "10px"}}
       (str title ":")]
      [:input {:style {:display "inline-block"
@@ -383,10 +384,15 @@
        "היגרו לישוב בתקופה מסוימת"]
       "אוכלוסיה"]
      (if (= "היגרו לישוב בתקופה מסוימת" (@doc :period-type))
-       [slider-component
-        [:chosen-period]
-        periods-entered
-        "תקופה"])
+       [:div
+        [slider-component
+         [:chosen-period]
+         periods-entered
+         "תקופה"]
+        [chooser-component
+         [:chosen-period]
+         periods-entered
+         "תקופה"]])
      [chooser-component
       [:char]
       ["דת" "מוצא"]
