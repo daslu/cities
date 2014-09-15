@@ -70,8 +70,8 @@
         dimple-chart (.setBounds (Chart. svg)
                                  (:x bounds) (:y bounds)
                                  (:width bounds) (:height bounds))
-        x            (.addCategoryAxis dimple-chart "x" x-axis)
-        y            (.addMeasureAxis dimple-chart "y" y-axis)]
+        x            (.addCategoryAxis dimple-chart "x" "x")
+        y            (.addMeasureAxis dimple-chart "y" "y")]
     (doseq [[name data] data-series]
       (do ;;(println [name data])
           (let [s (.addSeries dimple-chart
@@ -83,7 +83,9 @@
             (if-let [color (colors name)]
               (.assignColor dimple-chart name color)))))
     (.addLegend dimple-chart "60%" "10%" "40%" "40%" "left")
-    (.draw dimple-chart)))
+    (.draw dimple-chart)
+    (.text (.-titleShape x) x-axis)
+    (.text (.-titleShape y) y-axis)))
 
 (defn get-chart-spec-with-id [id spec]
   (assoc-in spec
@@ -292,9 +294,9 @@
                           "ערך נבחר"
                           "#ff9999"}
                  :div {:width "90%" :height 400}
-                 :bounds {:x "5%" :y "15%" :width "80%" :height "50%"}
-                 :x-axis "x" ;;char
-                 :y-axis "y" ;;"שכיחות"
+                 :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
+                 :x-axis char
+                 :y-axis "שכיחות"
                  :plot js/dimple.plot.bar
                  :data-series {"כל השאר" (filter #(not= (:x %) val)
                                            freqs)
@@ -325,28 +327,17 @@
                                   (second (keys freqs-by-city-name)) "#663366"}
                          :div {:width "60%" :height 400}
                          :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
-                         :x-axis "x" ;;char
-                         :y-axis "y" ;;"שכיחות"
+                         :x-axis char
+                         :y-axis "שכיחות יחסית"
                          :plot js/dimple.plot.bar
                          :data-series (apply conj
                                              (for [[city-name freqs] freqs-by-city-name]
-                                               {(str city-name)
-                                                (->> freqs
-                                                     (map (fn [xy]
-                                                            (update-in xy [:x] #(str % " " city-name)))))}))
-                         ;; (apply conj
-                         ;;        (for [[city-name freqs] freqs-by-city-name]
-                         ;;          {(str city-name ": כל השאר")
-                         ;;           (->> freqs
-                         ;;                (filter #(not= (:x %) val))
-                         ;;                (map (fn [xy]
-                         ;;                       (update-in xy [:x] #(str % " " city-name)))))
-                         ;;           (str city-name ": ערך נבחר")
-                         ;;           (->> freqs
-                         ;;                (filter #(= (:x %) val))
-                         ;;                (map (fn [xy]
-                         ;;                       (update-in xy [:x] #(str % " " city-name)))))}))
-                         })))))
+                                               (let [total (apply + (map :y freqs))]
+                                                 {(str city-name)
+                                                  (->> freqs
+                                                       (map #(-> %
+                                                                 (update-in [:x] (fn [x] (str x " -> " city-name)))
+                                                                 (update-in [:y] (fn [y] (/ y total))))))})))})))))
 
 (defn req-charts [char val period]
   (do (doseq [side [:left :right]]
@@ -450,11 +441,10 @@
        [:char]
        ["דת" "מוצא"]
        "מאפיין לניתוח"]
-      (if-let [possible-values (@app-state :possible-values)]
-        [chooser-component
-         [:val]
-         (-> @doc :char char-to-key possible-values vec)
-         "ערך נבחר"])
+      [chooser-component
+       [:val]
+       (-> @doc :char char-to-key ordered-values vec)
+       "ערך נבחר"]
       [chooser-component
        [:period-type]
        ["כל האוכלוסיה"
