@@ -83,7 +83,7 @@
 
 (defn get-chart-spec-with-div [id spec]
   (assoc spec
-    :div {:id id :width 400 :height 400}))
+    :div {:id id :width "100%" :height 400}))
 
 
 (defn chart-component [id side chart-spec]
@@ -205,7 +205,7 @@
           [:h3 city]
           [:div {:style {:display "inline-block"
                          :padding "30px"
-                         :width 500}}
+                         :width "30%"}}
            [:h3 city]
            [:div
             (let [chart-spec (-> @app-state
@@ -229,16 +229,6 @@
         [chart-component (str "chart_comparison")]]])))
 
 
-(def help
-  [:div {:style {:background-color "#dddddd"}}
-   [:h2 "הוראות"]
-   [:h4 "שלום."
-    ;; "
-    ;; רקע על המאגר
-
-    ;;  "
-    ]])
-
 (defn render-cities! [themap colors]
   (if-let [cities (->> @app-state
                        :cities-map
@@ -258,14 +248,35 @@
                          :code (:code city)}]
               (drop-circle themap place (colors (:code city)))))))))
 
+(defn help-button [show-help?]
+  [:h2 [:input {:type "button"
+                :style {:background-color "#99dd99"}
+                :value (if @show-help?
+                         "להסתיר הוראות?"
+                         "להציג הוראות?")
+                :on-click #(swap! show-help? not)}]])
+
+
+(def help
+  [:div {:style {:background-color "#dddddd"}}
+   [:h2 "הוראות"]
+   [:h4 "שלום."
+    ;; "
+    ;; רקע על המאגר
+
+    ;;  "
+    ]
+   ])
+
+
 (def help-component
   (let [show-help? (atom false)]
     (fn []
-      [:div [:h2 [:input {:type "button" :value (if @show-help?
-                                                  "להסתיר את ההוראות?"
-                                                  "להציג את ההוראות?")
-                          :on-click #(swap! show-help? not)}]]
-       (if @show-help? help)])))
+      [:div
+       [help-button show-help?]
+       (if @show-help? help)
+       (if @show-help?
+         [help-button show-help?])])))
 
 (defn req-chart [path city-code type char val period]
   (case type
@@ -354,6 +365,9 @@
     [:div {:style {:width "100%" 
                    :direction "rtl"
                    :background-color "#aaaaaa"}}
+     [:h1 {:style {:background-color "#dddddd"
+                   :padding "20px"}}
+      "ויזואליזציה של תנועות אוכלוסיה ליישובים שונים לאורך השנים"]
      [help-component]
      [:p (if-let [themap (:map @app-state)]
            (let [colors (or (:colors @app-state) {})]
@@ -401,7 +415,8 @@
 
 ;; (fw/watch-and-reload
 ;;  :jsload-callback (fn []
-;;                     ))
+;;                     (reagent/render-component [app]
+;;                                               (.getElementById js/document "main-area"))))
 
 (reagent/render-component [app]
                           (.getElementById js/document "main-area"))
