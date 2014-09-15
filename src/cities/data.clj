@@ -38,6 +38,24 @@
    "גר ביישוב מלידה"
    "בני 0-14"])
 
+(defn split-equally [num coll]
+  "Split a collection into a vector of (as close as possible) equally sized parts"
+  (loop [num num
+         parts []
+         coll coll
+         c (count coll)]
+    (if (<= num 0)
+      parts
+      (let [t (quot (+ c num -1) num)]
+        (recur (dec num) (conj parts (take t coll)) (drop t coll) (- c t))))))
+(defmacro dopar [thread-count [sym coll] & body]
+  `(doall (pmap
+           (fn [vals#]
+             (doseq [~sym vals#]
+               ~@body))
+           (split-equally ~thread-count ~coll))))
+
+
 
 (def h2008
   (let [f (future
@@ -166,16 +184,15 @@
                                                     (rescaling prop))
                                                   1/256))]))))))
 
-(doseq [column-name [:religion :origin]
-        val (ordered-values column-name)
-        period (cons "הכל" periods)]
-  (println [column-name val period])
-  (println (get-colors column-name val period)))
-
-
-(doseq [city-code (keys (cities-map))
-        column-name [:religion :origin]
-        period (cons "הכל" periods)]
-  (println [city-code column-name period])
-  (println (get-freqs city-code column-name period)))
+(binding [*print-length* 3]
+  (do (future (println (cities-map)))
+      (future (println (possible-values)))
+      (doseq [column-name [:religion :origin]
+              val (ordered-values column-name)]
+        (dopar 4 [period (cons "הכל" periods)]
+               (println [column-name val period (get-colors column-name val period)])))
+      (doseq [column-name [:religion :origin]
+              period (cons "הכל" periods)]
+        (dopar 4 [city-code (keys (cities-map))]
+               (println [city-code column-name period (get-freqs city-code column-name period)])))))
 

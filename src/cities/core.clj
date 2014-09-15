@@ -21,7 +21,8 @@
 ;;    {:lat 32.5 :lng 34 :size 5 :name "mark2"}])
 
 (defn notify [message]
-  (sh "notify-send" message))
+  ;; (sh "notify-send" message)
+  (println message))
 
 (defn eval-code [code]
   (do (notify code)
