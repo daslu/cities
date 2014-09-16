@@ -19,7 +19,7 @@
                           :comparison {}}))
 (def doc (atom {:char "מוצא"
                 :val "אפריקה"
-                :period-type "היגרו לישוב בתקופה מסוימת"
+                :period-type "עברו לישוב בתקופה מסוימת"
                 :chosen-period "1948-1954"}))
 
 (def ordered-values
@@ -264,11 +264,13 @@
 (defn city-component [side]
   (or (if-let [cities-map (-> @app-state :cities-map)]
         (let [city (-> @app-state side :code cities-map :name)]
-          [:h4 city]
           [:div {:style {:display "inline-block"
                          :padding "5px"
                          :width "25%"}}
            [:h4 city]
+           (case side
+             :right [:p "(בחירה במפה על ידי לחיצת עכבר ימנית)"]
+             :left [:p "(בחירה במפה על ידי לחיצת עכבר שמאלית)"])
            [:div
             (let [chart-spec (-> @app-state
                                  side
@@ -468,7 +470,7 @@
 
 (defn get-period []
   (or (if-let [period-type (:period-type @doc)]
-        (if (= period-type "היגרו לישוב בתקופה מסוימת")
+        (if (= period-type "עברו לישוב בתקופה מסוימת")
           (if-let [chosen-period (:chosen-period @doc)]
             chosen-period)))
       "הכל"))
@@ -513,9 +515,9 @@
       [chooser-component
        [:period-type]
        ["כל האוכלוסיה"
-        "היגרו לישוב בתקופה מסוימת"]
+        "עברו לישוב בתקופה מסוימת"]
        "אוכלוסיה"]
-      (if (= "היגרו לישוב בתקופה מסוימת" (@doc :period-type))
+      (if (= "עברו לישוב בתקופה מסוימת" (@doc :period-type))
         [:div
          [slider-component
           [:chosen-period]
