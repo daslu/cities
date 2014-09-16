@@ -199,6 +199,32 @@
 
 (def scatter-chart-atom (atom {}))
 
+(defn get-scatter-chart-spec [;; proportions char val
+                              doc]
+  (if-let [char (@doc :char)]
+    (if-let [val (@doc :val)]
+      (if-let [cities-map (:cities-map @app-state)]
+        (if-let [proportions (:proportions @app-state)]
+          (if-let [colors (:colors @app-state)]
+            (let [data (vec
+                        (for [city (vals cities-map)]
+                          (let [code (:code city)]
+                            {:x (or (proportions code)
+                                    0)
+                             :y (:y city)
+                             :size (* 10 (Math/sqrt (:freq city)))
+                             :color (colors code)
+                             :name (:name city)})))]
+              {:colors {}
+               :div {:width "90%" :height 400}
+               :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
+               :x-axis (str "שכיחות יחסית של " char ": " val)
+               :y-axis "קו רוחב"
+               :plot js/dimple.plot.bubble
+               :data-series {"יישובים" data}
+               ;;:order-rule "x"
+               :x-axis-type :measure})))))))
+
 (defn req-eval [path form transf]
   (let [code-string (pr-str form)
         update-state (fn [result]
@@ -389,31 +415,7 @@
             (list 'cities.data/get-proportions (char-to-key char) val period)
             identity))
 
-(defn get-scatter-chart-spec [;; proportions char val
-                              doc]
-  (if-let [char (@doc :char)]
-    (if-let [val (@doc :val)]
-      (if-let [cities-map (:cities-map @app-state)]
-        (if-let [proportions (:proportions @app-state)]
-          (if-let [colors (:colors @app-state)]
-            (let [data (vec
-                        (for [city (vals cities-map)]
-                          (let [code (:code city)]
-                            {:x (or (proportions code)
-                                    0)
-                             :y (:y city)
-                             :size (* 10 (Math/sqrt (:freq city)))
-                             :color (colors code)
-                             :name (:name city)})))]
-              {:colors {}
-               :div {:width "90%" :height 400}
-               :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
-               :x-axis (str "שכיחות יחסית של " char ": " val)
-               :y-axis "קו רוחב"
-               :plot js/dimple.plot.bubble
-               :data-series {"יישובים" data}
-               ;;:order-rule "x"
-               :x-axis-type :measure})))))))
+
 
 
 (defn chooser-component [path values title]
