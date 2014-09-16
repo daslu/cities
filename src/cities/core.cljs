@@ -8,7 +8,7 @@
              [cljs.core.async :as async :refer [<! chan close! put!]]
              [markdown.core :refer [md->html]])
   (:require-macros
-    [cljs.core.async.macros :refer [go alt!]]))
+   [cljs.core.async.macros :refer [go alt!]]))
 
 
 (enable-console-print!)
@@ -307,23 +307,22 @@
   [:h4 [:input {:type "button"
                 :style {:background-color "#99dd99"}
                 :value (if @show-help?
-                         "להסתיר מבוא?"
-                         "להציג מבוא?")
+                         "להסתיר הסבר?"
+                         "להציג הסבר?")
                 :on-click #(swap! show-help? not)}]])
 
 
 (def help
   [:div {:style {:background-color "#dddddd"}}
-   [:h3 "פרויקט סיום בקורס \"ויזואליזציה של נתונים\""]
-   [:h4 "בהנחיית פרופ' יואב בנימיני ושי יעקבי"]
-   [:p "מגישים: רועי גרנות ודניאל סלוצקי, ספטמבר 2014"]
+   [:h2 "פרויקט סיום בקורס \"ויזואליזציה של נתונים\""]
+   [:h3 "בהנחיית פרופ' יואב בנימיני ושי יעקבי"]
+   [:h4 "מגישים: רועי גרנות ודניאל סלוצקי, ספטמבר 2014"]
    [:p "~~~"]
    [:p
-    "עמוד זה מציע כמה דרכים להתבונן בתנועה של קבוצות אוכלוסיה אל ערים שונות לאורך השנים.
+    "פרויקט זה מציע כמה דרכים להתבונן בתנועה של קבוצות אוכלוסיה אל ערים שונות לאורך השנים.
 התצוגה מבוססת על נתונים ממפקד האוכלוסין של 2008."
     ]
-   [:br]
-   [:h5
+   [:h4
     "מוטיבציה"
     ]
    [:p
@@ -332,24 +331,19 @@
 מידע זה מאפשר לבחון מעין 'שכבות ארכאולוגיות' של האוכלוסיות שהגיעו
 ליישוב נתון בתקופות שונות."
     ]
-   [:br]
    [:p
     "יש כאן, אם כן, נתונים רב־מימדיים של מאפייני אוכלוסיה, המשתנים על פני
 המרחב הגאוגרפי ולאורך זמן."
     ]
-   [:br]
    [:p
     "דרך אחת אפשרית להציג תהליכי שינוי בין תקופות היא כמובן תצוגה שגרתית של
     סדרות עתיות, בה אחד הצירים הוא ציר הזמן. הפרויקט הנוכחי מציע דרך
     תצוגה נוספת, בתנועה הנשלטת על ידי המשתמש/ת. דרך זו עשויה להקל במקרים מסוימים על התפישה של תהליכי שינוי רב־מימדיים."
     ]
-   [:br]
    [:p
     "כעת נציג את אופן השימוש בעמוד."
     ]
-   [:br]
-   
-   [:h5
+   [:h4
     "אפשרויות בחירה"
     ]
    [:p    
@@ -364,7 +358,7 @@
      ]
     [:li
      " ב. באיזה ערך של מאפיין זה נתמקד? יש
- לבחור אחד מהערכים (לדוגמה "מוסלמי" במקרה של המאפיין הדת). ערך זה יקבל
+ לבחור אחד מהערכים (לדוגמה 'מוסלמי' במקרה של המאפיין הדת). ערך זה יקבל
  התיחסות מיוחדת בייצוג החזותי."
      ]
     [:li
@@ -376,14 +370,14 @@
     [:li
      "ד. במקרה שבחרנו להצטמצם לאוכלוסיה
  של מי שנכנסו בתקופה מסוימת, יש לבחור את התקופה (בלחיצה על התקופה המתאימה או בבחירה על הסרגל (slider))."
+     ]
+    [:li
+     "כמו כן, יש לבחור שני יישובים שבהם נתמקד. יישוב אחד נבחר בלחיצת עכבר ימנית על העיגול המתאים במפה, ואת היישוב השני ־־ בלחיצה שמאלית."
      ]]
-   [:li
-    "כמו כן, יש לבחור שני יישובים שבהם נתמקד. יישוב אחד נבחר בלחיצת עכבר ימנית על העיגול המתאים במפה, ואת היישוב השני ־־ בלחיצה שמאלית."
-    ]
    [:p
     "כעת נסביר את התוצר החזותי של הבחירות הללו."
     ]
-   [:h5
+   [:h4
     "התצוגה"
     ]
    [:p
@@ -401,6 +395,7 @@
    [:p
     "תרשים הפיזור מציג את היישובים באותם צבעים, כאשר ציר ה־y מייצג עדיין את קוי
 הרוחב, אבל ציר ה־x הוא הפרופורציה של הערך הנבחר בחתך הנבדק בכל יישוב.
+ניתן להצביע על כל איבר ולראות את שם היישוב המתאים בבועה המופיעה.
 התצוגה הזו משרתת שתי מטרות: א. להמחיש את השיוך בין צבעים לפרופורציות.
 ב. לבחון כיצד השכיחויות של הערך הנבחר קשורות בציר גאוגרפי חשוב ־־ השיוך לקוי
 רוחב. קוי הרוחב בארץ מעידים במדה רבה על השיוך של יישובים למרכז או
@@ -420,7 +415,7 @@
    [:p
     "הזזה של הסרגל (slider) מאפשרת מבט בתנועה על השינוי בין תקופות שונות."
     ]
-   [:h5
+   [:h4
     "שיפורים אפשריים"
     ]
    [:ul
@@ -431,100 +426,100 @@
     [:li
      "מעניין יהיה לבחון תצוגה בתנועה לצד תצוגה שגרתית של סדרות עתיות, עם קישור ביניהן."
      ]]
-   [:h5
+   [:h4
     "מימוש"
     ]
    [:p
     "התוכנה נכתבה בשפת clojurescript ועושה שימוש בספרית הגרפים dimple
 ובספרית המפות leaflet."
-    ]]] 
+    ]])
 
-    
 
-    (def help-component
-      (let [show-help? (atom false)]
-        (fn []
-          [:div
-           [help-button show-help?]
-           (if @show-help? help)
-           (if @show-help?
-             [help-button show-help?])])))]])
 
-    (defn req-chart [path city-code type char val period]
-      (case type
-        :freq (req-eval path
-                        (list 'cities.data/get-freqs city-code (char-to-key char) period)
-                        (fn [freqs]
-                          {:colors {"כל השאר"
-                                    "#9999ff"
-                                    "ערך נבחר"
-                                    "#ff9999"}
-                           :div {:width "90%" :height 400}
-                           :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
-                           :x-axis char
-                           :y-axis "שכיחות"
-                           :plot js/dimple.plot.bar
-                           :data-series {"כל השאר" (filter #(not= (:x %) val)
-                                                           freqs)
-                                         "ערך נבחר" (filter #(= (:x %) val)
-                                                            freqs)}
-                           :order-rule (-> char char-to-key ordered-values reverse vec)
-                           :x-axis-type :category}))))
+(def help-component
+  (let [show-help? (atom true)]
+    (fn []
+      [:div
+       [help-button show-help?]
+       (if @show-help? help)
+       (if @show-help?
+         [help-button show-help?])])))
 
-    (defn req-comparison-chart [path city-names-by-code type char val period]
-      (case type
-        :freq (req-eval path
-                        (into {} (for [[city-code city-name] city-names-by-code]
-                                   {city-name (list 'cities.data/get-freqs city-code (char-to-key char) period)}))
-                        (fn [freqs-by-city-name]
-                          (let [city-names (keys freqs-by-city-name)]
-                            {:colors {(first (keys freqs-by-city-name)) "#339933"
-                                      (second (keys freqs-by-city-name)) "#663366"}
-                             :div {:width "90%" :height 400}
-                             :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
-                             :x-axis char
-                             :y-axis "שכיחות יחסית"
-                             :plot js/dimple.plot.bar
-                             :data-series (apply conj
-                                                 (for [[city-name freqs] freqs-by-city-name]
-                                                   (let [total (apply + (map :y freqs))]
-                                                     {(str city-name)
-                                                      (->> freqs
-                                                           (map #(-> %
-                                                                     (update-in [:x] (fn [x] (str x " -> " city-name)))
-                                                                     (update-in [:y] (fn [y] (/ y total))))))})))
-                             :order-rule (->> char
-                                              char-to-key
-                                              ordered-values
-                                              (map (fn [x] (for [city-name city-names]
-                                                            (str x " -> " city-name))))
-                                              (apply concat)
-                                              reverse
-                                              vec)
-                             :x-axis-type :category})))))
+(defn req-chart [path city-code type char val period]
+  (case type
+    :freq (req-eval path
+                    (list 'cities.data/get-freqs city-code (char-to-key char) period)
+                    (fn [freqs]
+                      {:colors {"כל השאר"
+                                "#9999ff"
+                                "ערך נבחר"
+                                "#ff9999"}
+                       :div {:width "90%" :height 400}
+                       :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
+                       :x-axis char
+                       :y-axis "שכיחות"
+                       :plot js/dimple.plot.bar
+                       :data-series {"כל השאר" (filter #(not= (:x %) val)
+                                                       freqs)
+                                     "ערך נבחר" (filter #(= (:x %) val)
+                                                        freqs)}
+                       :order-rule (-> char char-to-key ordered-values reverse vec)
+                       :x-axis-type :category}))))
 
-    (defn req-charts [char val period]
-      (do (doseq [side [:left :right]]
-            (do
-              (if-let [city-code (-> @app-state side :code)]
-                (req-chart [side :chart-spec]
-                           city-code
-                           :freq
-                           char
-                           val
-                           period))))
-          (if-let [cities-map (:cities-map @app-state)]
-            (do
-              (let [city-codes (map (comp :code @app-state)
-                                    [:left :right])]
-                (if (every? identity city-codes)
-                  (let [city-names-by-code (into {}
-                                                 (for [city-code city-codes]
-                                                   {city-code (-> city-code cities-map :name)}))]
-                    (req-comparison-chart [:comparison :chart-spec]
-                                          city-names-by-code
-                                          :freq
-                                          char val period)))))))))
+(defn req-comparison-chart [path city-names-by-code type char val period]
+  (case type
+    :freq (req-eval path
+                    (into {} (for [[city-code city-name] city-names-by-code]
+                               {city-name (list 'cities.data/get-freqs city-code (char-to-key char) period)}))
+                    (fn [freqs-by-city-name]
+                      (let [city-names (keys freqs-by-city-name)]
+                        {:colors {(first (keys freqs-by-city-name)) "#339933"
+                                  (second (keys freqs-by-city-name)) "#663366"}
+                         :div {:width "90%" :height 400}
+                         :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
+                         :x-axis char
+                         :y-axis "שכיחות יחסית"
+                         :plot js/dimple.plot.bar
+                         :data-series (apply conj
+                                             (for [[city-name freqs] freqs-by-city-name]
+                                               (let [total (apply + (map :y freqs))]
+                                                 {(str city-name)
+                                                  (->> freqs
+                                                       (map #(-> %
+                                                                 (update-in [:x] (fn [x] (str x " -> " city-name)))
+                                                                 (update-in [:y] (fn [y] (/ y total))))))})))
+                         :order-rule (->> char
+                                          char-to-key
+                                          ordered-values
+                                          (map (fn [x] (for [city-name city-names]
+                                                        (str x " -> " city-name))))
+                                          (apply concat)
+                                          reverse
+                                          vec)
+                         :x-axis-type :category})))))
+
+(defn req-charts [char val period]
+  (do (doseq [side [:left :right]]
+        (do
+          (if-let [city-code (-> @app-state side :code)]
+            (req-chart [side :chart-spec]
+                       city-code
+                       :freq
+                       char
+                       val
+                       period))))
+      (if-let [cities-map (:cities-map @app-state)]
+        (do
+          (let [city-codes (map (comp :code @app-state)
+                                [:left :right])]
+            (if (every? identity city-codes)
+              (let [city-names-by-code (into {}
+                                             (for [city-code city-codes]
+                                               {city-code (-> city-code cities-map :name)}))]
+                (req-comparison-chart [:comparison :chart-spec]
+                                      city-names-by-code
+                                      :freq
+                                      char val period))))))))
 
 (defn req-colors [char val period]
   (req-eval [:colors]
@@ -553,7 +548,7 @@
                                       (swap! doc assoc-in path val))}])]
     [:div
      [:h4 {:style {:display "inline-block"
-                         :padding "5px"}}
+                   :padding "5px"}}
       (str title ":")]
      (if (not (values-set (get-in @doc path)))
        (swap! doc assoc-in path (first values)))
@@ -652,8 +647,8 @@
       [:div {:style {:width "70%"}}
        (if-let [chart-spec (-> @app-state :comparison :chart-spec)]
          [:div {:style {:width "40%"
-                      :display "inline-block"
-                      :padding "5px"}}
+                        :display "inline-block"
+                        :padding "5px"}}
           [:h4 {:style {:display "inline-block"
                         :padding "5px"}}
            "השוואה"]
@@ -667,7 +662,7 @@
                       :display "inline-block"
                       :padding "5px"}}
         [:h4 {:style {:display "inline-block"
-                        :padding "5px"}}
+                      :padding "5px"}}
          "כל היישובים"]
         [scatter-component "scatter" scatter-chart-atom]]]
       ]]))
