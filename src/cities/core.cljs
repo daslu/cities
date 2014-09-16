@@ -5,7 +5,8 @@
              ;; [json-html.core :refer [edn->html]]
              [ajax.core :refer [POST]]
              [markdown.core :as md]
-             [cljs.core.async :as async :refer [<! chan close! put!]])
+             [cljs.core.async :as async :refer [<! chan close! put!]]
+             [markdown.core :refer [md->html]])
   (:require-macros
     [cljs.core.async.macros :refer [go alt!]]))
 
@@ -29,9 +30,9 @@
               "אחר / לא ידוע / ללא סיווג דת"]
    :origin ["ישראל"
             "אסיה"
+            "אפריקה"
             "אירופה"
             "אמריקה-אוקיאניה"
-            "אפריקה"
             "NA"]})
 
 (def periods
@@ -63,26 +64,48 @@
    "2005 ויותר"])
 
 
-(defn draw-chart [{:keys [colors data-series div bounds x-axis y-axis plot]}]
+(defn draw-chart [{:keys [colors data-series div bounds x-axis y-axis plot order-rule x-axis-type]}]
   (let [{:keys [id width height]} div
         Chart        (.-chart js/dimple)
         svg          (.newSvg js/dimple (str "#" id) width height)
         dimple-chart (.setBounds (Chart. svg)
                                  (:x bounds) (:y bounds)
                                  (:width bounds) (:height bounds))
-        x            (.addCategoryAxis dimple-chart "x" "x")
+        x            (case x-axis-type
+                       :category (.addCategoryAxis dimple-chart "x" "x")
+                       :measure (.addMeasureAxis dimple-chart "x" "x"))
         y            (.addMeasureAxis dimple-chart "y" "y")]
-    (doseq [[name data] data-series]
-      (do ;;(println [name data])
-          (let [s (.addSeries dimple-chart
-                              name
-                              plot
-                              (clj->js [x y]))]
-            (.addOrderRule x "x")
-            (aset s "data" (clj->js data))
-            (if-let [color (colors name)]
-              (.assignColor dimple-chart name color)))))
-    (.addLegend dimple-chart "60%" "10%" "40%" "40%" "left")
+    (if (= :measure x-axis-type)
+      (let [xys (-> data-series vals first vec)]
+        (dotimes [i (count xys)]
+          (let [xy (xys i)
+                aname (str i)]
+            (let [s (.addSeries dimple-chart
+                                aname
+                                plot
+                                (clj->js [x y]))]
+              (aset s "data" (clj->js [xy]))
+              (.assignColor dimple-chart
+                            aname
+                            (:color xy)))))
+        (aset y "overrideMin"
+              (->> data-series vals first (map :y) (apply min) (+ -0.1))))
+      ;; else
+      (doseq [[name data] data-series]
+        (do (let [s (.addSeries dimple-chart
+                                name
+                                plot
+                                (clj->js [x y]))]
+              (aset s "data" (clj->js data))
+              (if-let [color (colors name)]
+                (do
+                  (if (= :measure x-axis-type)
+                    (println color))
+                  (.assignColor dimple-chart name color)))))))
+    (if order-rule
+      (.addOrderRule x (clj->js order-rule)))
+    (if (not= :measure x-axis-type)
+      (.addLegend dimple-chart "60%" "10%" "40%" "40%" "left"))
     (.draw dimple-chart)
     (.text (.-titleShape x) x-axis)
     (.text (.-titleShape y) y-axis)))
@@ -92,26 +115,29 @@
             [:div :id] id))
 
 
-(defn chart-component [id side chart-spec]
-  (do
-    (let [setup (fn [] (do
-                        [:div {:style {:position "relative"
-                                       :direction "ltr"}
-                               :react-key id ;; ensure React knows this is non-reusable
-                               :ref id ;; label it so we can retrieve it via get-node
-                               :id id}]))
-          do-render! (fn [] (do
-                             (let [n (.getElementById js/document id)
-                                   spec (-> @app-state side :chart-spec)]
-                               (while (.hasChildNodes n)
-                                 (.removeChild n (.-lastChild n)))
-                               (if spec
-                                 (draw-chart (get-chart-spec-with-id
-                                              id spec))))))]
-      (reagent/create-class
-       {:render setup
-        :component-did-mount do-render!
-        :component-did-update do-render!}))))
+(defn chart-component [id path chart-spec-getter doc]
+  (let [setup (fn [] [:div {:style {:position "relative"
+                                   :direction "ltr"}
+                           :react-key id ;; ensure React knows this is non-reusable
+                           :ref id ;; label it so we can retrieve it via get-node
+                           :id id}
+                     ;; [:p (or (if-let [props (:proportions @app-state)]
+                     ;;           (count props))
+                     ;;         ".")]
+                     ])
+        do-render! (fn [] (let [n (.getElementById js/document id)
+                               spec (if path
+                                      (get-in @app-state path)
+                                      (chart-spec-getter doc))]
+                           (while (.hasChildNodes n)
+                             (.removeChild n (.-lastChild n)))
+                           (if (:div spec)
+                             (draw-chart (get-chart-spec-with-id
+                                          id spec)))))]
+    (reagent/create-class
+     {:render setup
+      :component-did-mount do-render!
+      :component-did-update do-render!})))
 
 ;; (def tile-url "http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
 ;; (def attribution "&copy; <a href=\"http://openstreetmap.org\">OpenStreetMap</a> contributors, <a href=\"http://creativecommons.org/licenses/by-sa/2.0/\">CC-BY-SA</a>")
@@ -176,6 +202,7 @@
 
 (defn req-eval [path form transf]
   (let [code-string (pr-str form)
+        _ (println code-string)
         update-state (fn [result]
                        (swap! app-state assoc-in
                               path (transf result)))
@@ -219,20 +246,21 @@
                                  :chart-spec)]
               [chart-component
                (str "chart_" (name side))
-               side
-               chart-spec])]]))
+               [side :chart-spec]
+               nil
+               doc])]]))
       [:h3 "..."]))
 
-(defn comparison-component []
-  (if-let [cities-map (-> @app-state :cities-map)]
-    (let [two-cities (for [side [:left :right]]
-                       (-> @app-state side :code cities-map :name))]
-      [:div {:style {:display "inline-block"
-                     :padding "5px"}}
-       [:h3 "השוואה"]
-       [:div
-        [chart-component
-         (str "chart_comparison")]]])))
+;; (defn comparison-component []
+;;   (if-let [cities-map (-> @app-state :cities-map)]
+;;     (let [two-cities (for [side [:left :right]]
+;;                        (-> @app-state side :code cities-map :name))]
+;;       [:div {:style {:display "inline-block"
+;;                      :padding "5px"}}
+;;        [:h3 "השוואה"]
+;;        [:div
+;;         [chart-component
+;;          (str "chart_comparison")]]])))
 
 
 (defn render-cities! [themap colors]
@@ -266,12 +294,11 @@
 (def help
   [:div {:style {:background-color "#dddddd"}}
    [:h2 "מבוא"]
-   [:h4 "שלום."
-    ;; "
-    ;; רקע על המאגר
+   [:p ""]
+   ;; "
+   ;; רקע על המאגר
 
-    ;;  "
-    ]
+   ;;  "
    ])
 
 
@@ -287,21 +314,25 @@
 (defn req-chart [path city-code type char val period]
   (case type
     :freq (req-eval path
-              (list 'cities.data/get-freqs city-code (char-to-key char) period)
-              (fn [freqs]
-                {:colors {"כל השאר"
-                          "#9999ff"
-                          "ערך נבחר"
-                          "#ff9999"}
-                 :div {:width "90%" :height 400}
-                 :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
-                 :x-axis char
-                 :y-axis "שכיחות"
-                 :plot js/dimple.plot.bar
-                 :data-series {"כל השאר" (filter #(not= (:x %) val)
-                                           freqs)
-                               "ערך נבחר" (filter #(= (:x %) val)
-                                                  freqs)}}))))
+                    (list 'cities.data/get-freqs city-code (char-to-key char) period)
+                    (fn [freqs]
+                      {:colors {"כל השאר"
+                                "#9999ff"
+                                "ערך נבחר"
+                                "#ff9999"}
+                       :div {:width "90%" :height 400}
+                       :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
+                       :x-axis char
+                       :y-axis "שכיחות"
+                       :plot js/dimple.plot.bar
+                       :data-series {"כל השאר" (filter #(not= (:x %) val)
+                                                       freqs)
+                                     "ערך נבחר" (filter #(= (:x %) val)
+                                                        freqs)}
+                       :order-rule (do
+                                     ;; (println ["%%$$$" (-> char char-to-key ordered-values vec)])
+                                     (-> char char-to-key ordered-values reverse vec))
+                       :x-axis-type :category}))))
 
 (defn req-comparison-chart [path city-names-by-code type char val period]
   (case type
@@ -309,20 +340,7 @@
                     (into {} (for [[city-code city-name] city-names-by-code]
                                {city-name (list 'cities.data/get-freqs city-code (char-to-key char) period)}))
                     (fn [freqs-by-city-name]
-                      (do
-                        (println (for [[city-name freqs] freqs-by-city-name]
-                                   {(str city-name ": כל השאר")
-                                    (->> freqs
-                                         (filter #(not= (:x %) val))
-                                         (map (fn [xy]
-                                                (update-in xy [:x] #(str " " city-name))))
-                                         vec)
-                                    (str city-name ": ערך נבחר")
-                                    (->> freqs
-                                         (filter #(= (:x %) val))
-                                         (map (fn [xy]
-                                                (update-in xy [:x] #(str " " city-name))))
-                                         vec)}))
+                      (let [city-names (keys freqs-by-city-name)]
                         {:colors {(first (keys freqs-by-city-name)) "#339933"
                                   (second (keys freqs-by-city-name)) "#663366"}
                          :div {:width "60%" :height 400}
@@ -337,7 +355,16 @@
                                                   (->> freqs
                                                        (map #(-> %
                                                                  (update-in [:x] (fn [x] (str x " -> " city-name)))
-                                                                 (update-in [:y] (fn [y] (/ y total))))))})))})))))
+                                                                 (update-in [:y] (fn [y] (/ y total))))))})))
+                         :order-rule (->> char
+                                          char-to-key
+                                          ordered-values
+                                          (map (fn [x] (for [city-name city-names]
+                                                        (str x " -> " city-name))))
+                                          (apply concat)
+                                          reverse
+                                          vec)
+                         :x-axis-type :category})))))
 
 (defn req-charts [char val period]
   (do (doseq [side [:left :right]]
@@ -367,21 +394,56 @@
             (list 'cities.data/get-colors (char-to-key char) val period)
             identity))
 
+(defn req-proportions [char val period]
+  (req-eval [:proportions]
+            (list 'cities.data/get-proportions (char-to-key char) val period)
+            identity))
+
+(defn get-scatter-chart-spec [;; proportions char val
+                              doc]
+  (if-let [char (@doc :char)]
+    (if-let [val (@doc :val)]
+      (if-let [cities-map (:cities-map @app-state)]
+        (if-let [proportions (:proportions @app-state)]
+          (if-let [colors (:colors @app-state)]
+            (let [data (vec
+                        (for [city (vals cities-map)]
+                          (let [code (:code city)]
+                            {:x (or (proportions code)
+                                    0)
+                             :y (:y city)
+                             :size (* 10 (Math/sqrt (:freq city)))
+                             :color (colors code)
+                             :name (:name city)})))]
+              {:colors {}
+               :div {:width 600 :height 400}
+               :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
+               :x-axis (str "שכיחות יחסית של " char ": " val)
+               :y-axis "קו רוחב"
+               :plot js/dimple.plot.bubble
+               :data-series {"יישובים" data}
+               ;;:order-rule "x"
+               :x-axis-type :measure})))))))
+
+
 (defn chooser-component [path values title]
-  (let [option (fn [val]
-                        [:input {:style {:display "inline-block"
-                                         :padding "5px"
-                                         :background (if (= (get-in @doc path)
-                                                            val)
-                                                       "#ff9999"
-                                                       "#9999ff")}
-                                 :type "button" :value val
-                                 :on-click (fn []
-                                             (swap! doc assoc-in path val))}])]
+  (let [values-set (into #{} values)
+        option (fn [val]
+                 [:input {:style {:display "inline-block"
+                                  :padding "5px"
+                                  :background (if (= (get-in @doc path)
+                                                     val)
+                                                "#ff9999"
+                                                "#9999ff")}
+                          :type "button" :value val
+                          :on-click (fn []
+                                      (swap! doc assoc-in path val))}])]
     [:div
      [:h4 {:style {:display "inline-block"
                          :padding "5px"}}
       (str title ":")]
+     (if (not (values-set (get-in @doc path)))
+       (swap! doc assoc-in path (first values)))
      (for [val values]
        [option val])]))
 
@@ -401,8 +463,7 @@
               :on-keypress #(js/alert "A")
               :on-change #(do
                             (swap! doc assoc-in
-                                   path (values (-> % .-target .-value))))}]
-     ]))
+                                   path (values (-> % .-target .-value))))}]]))
 
 (req-eval [:cities-map]
           '(cities.data/cities-map)
@@ -419,6 +480,21 @@
             chosen-period)))
       "הכל"))
 
+(defn scatter-component [id]
+  (or (if-let [char (@doc :char)]
+        (if-let [val (@doc :val)]
+          (if-let [proportions (:proportions @app-state)]
+            (fn []
+              [chart-component
+               id
+               nil
+               get-scatter-chart-spec
+               ;; (partial get-scatter-chart-spec
+               ;;          proportions char val)
+               doc]))))
+      [:h3 "..."]))
+
+
 (defn app []
   (fn []
     [:div {:style {:width "100%" 
@@ -431,7 +507,7 @@
      [:p (if-let [themap (:map @app-state)]
            (let [colors (or (:colors @app-state) {})]
              (do
-               (println ["rendering cities" (get-period)])
+               ;; (println ["rendering cities" (get-period)])
                (render-cities! themap colors))
              "."))]
      [:div {:style {:float "right"}}
@@ -459,7 +535,8 @@
       [:div [:p (do (if-let [char (@doc :char)]
                       (if-let [val (@doc :val)]
                         (do (req-charts char val (get-period))
-                            (req-colors char val (get-period)))))
+                            (req-colors char val (get-period))
+                            (req-proportions char val (get-period)))))
                     "")]]
       [city-component :right]
       [city-component :left]
@@ -470,8 +547,9 @@
           "השוואה"]
          [chart-component
           "comparison"
-          :comparison
-          chart-spec]
+          [:comparison :chart-spec]
+          nil
+          doc]
          ;; [:h4 {:style {:direction "ltr"}} (pr-str (dissoc chart-spec :plot))]
          ])]
      ;; [:h4 (pr-str (keys @app-state))]
@@ -482,7 +560,7 @@
      ;;             ))
      ;;       nil))
      ;;  ]
-     ]))
+     [scatter-component "scatter"]]))
 
 ;;start the app
 
