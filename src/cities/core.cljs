@@ -98,10 +98,7 @@
                                 (clj->js [x y]))]
               (aset s "data" (clj->js data))
               (if-let [color (colors name)]
-                (do
-                  (if (= :measure x-axis-type)
-                    (println color))
-                  (.assignColor dimple-chart name color)))))))
+                (.assignColor dimple-chart name color))))))
     (if order-rule
       (.addOrderRule x (clj->js order-rule)))
     (if (not= :measure x-axis-type)
@@ -200,12 +197,18 @@
 (def eval-chans (atom {}))
 (def eval-cache (atom {}))
 
+(def scatter-chart-atom (atom {}))
+
 (defn req-eval [path form transf]
   (let [code-string (pr-str form)
-        _ (println code-string)
         update-state (fn [result]
-                       (swap! app-state assoc-in
-                              path (transf result)))
+                       (do (swap! app-state assoc-in
+                                  path (transf result))
+                           (if (= path [:proportions])
+                             (do
+                               (swap! scatter-chart-atom
+                                      assoc :chart-spec
+                                      (get-scatter-chart-spec doc))))))
         update-cache-and-state (fn [result]
                                  (do (swap! eval-cache assoc
                                             code-string result)
@@ -215,7 +218,6 @@
       ;; else
       (if (not (@eval-chans code-string))
         (let [ch (chan 1)]
-          ;; (println ["eval" code-string])
           (POST "/eval" {:params code-string
                          :handler (fn [response]
                                     (put! ch response)
@@ -251,16 +253,6 @@
                doc])]]))
       [:h3 "..."]))
 
-;; (defn comparison-component []
-;;   (if-let [cities-map (-> @app-state :cities-map)]
-;;     (let [two-cities (for [side [:left :right]]
-;;                        (-> @app-state side :code cities-map :name))]
-;;       [:div {:style {:display "inline-block"
-;;                      :padding "5px"}}
-;;        [:h3 "השוואה"]
-;;        [:div
-;;         [chart-component
-;;          (str "chart_comparison")]]])))
 
 
 (defn render-cities! [themap colors]
@@ -329,9 +321,7 @@
                                                        freqs)
                                      "ערך נבחר" (filter #(= (:x %) val)
                                                         freqs)}
-                       :order-rule (do
-                                     ;; (println ["%%$$$" (-> char char-to-key ordered-values vec)])
-                                     (-> char char-to-key ordered-values reverse vec))
+                       :order-rule (-> char char-to-key ordered-values reverse vec)
                        :x-axis-type :category}))))
 
 (defn req-comparison-chart [path city-names-by-code type char val period]
@@ -343,7 +333,7 @@
                       (let [city-names (keys freqs-by-city-name)]
                         {:colors {(first (keys freqs-by-city-name)) "#339933"
                                   (second (keys freqs-by-city-name)) "#663366"}
-                         :div {:width "60%" :height 400}
+                         :div {:width "90%" :height 400}
                          :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
                          :x-axis char
                          :y-axis "שכיחות יחסית"
@@ -416,7 +406,7 @@
                              :color (colors code)
                              :name (:name city)})))]
               {:colors {}
-               :div {:width 600 :height 400}
+               :div {:width "90%" :height 400}
                :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
                :x-axis (str "שכיחות יחסית של " char ": " val)
                :y-axis "קו רוחב"
@@ -480,19 +470,16 @@
             chosen-period)))
       "הכל"))
 
-(defn scatter-component [id]
-  (or (if-let [char (@doc :char)]
-        (if-let [val (@doc :val)]
-          (if-let [proportions (:proportions @app-state)]
-            (fn []
-              [chart-component
-               id
-               nil
-               get-scatter-chart-spec
-               ;; (partial get-scatter-chart-spec
-               ;;          proportions char val)
-               doc]))))
-      [:h3 "..."]))
+(defn scatter-component [id scatter-chart-atom]
+  [:div
+   [:p ""]
+   (or (if-let [spec (:chart-spec @scatter-chart-atom)]
+         [chart-component
+          id
+          nil
+          (fn [] (:chart-spec @scatter-chart-atom))
+          doc])
+       [:h3 "..."])])
 
 
 (defn app []
@@ -507,7 +494,6 @@
      [:p (if-let [themap (:map @app-state)]
            (let [colors (or (:colors @app-state) {})]
              (do
-               ;; (println ["rendering cities" (get-period)])
                (render-cities! themap colors))
              "."))]
      [:div {:style {:float "right"}}
@@ -540,27 +526,28 @@
                     "")]]
       [city-component :right]
       [city-component :left]
-      (if-let [chart-spec (-> @app-state :comparison :chart-spec)]
-        [:div 
-         [:h3 {:style {:display "inline-block"
-                       :padding "5px"}}
-          "השוואה"]
-         [chart-component
-          "comparison"
-          [:comparison :chart-spec]
-          nil
-          doc]
-         ;; [:h4 {:style {:direction "ltr"}} (pr-str (dissoc chart-spec :plot))]
-         ])]
-     ;; [:h4 (pr-str (keys @app-state))]
-     ;; [:h4 {:style {:direction "ltr"}}
-     ;;  (pr-str
-     ;;   (or (if-let [cities-map (-> @app-state :cities-map)]
-     ;;         (-> @app-state :left :code (->) cities-map :name
-     ;;             ))
-     ;;       nil))
-     ;;  ]
-     [scatter-component "scatter"]]))
+      [:div {:style {:width "80%"}}
+       (if-let [chart-spec (-> @app-state :comparison :chart-spec)]
+         [:div {:style {:width "40%"
+                      :display "inline-block"
+                      :padding "5px"}}
+          [:h3 {:style {:display "inline-block"
+                        :padding "5px"}}
+           "השוואה"]
+          [chart-component
+           "comparison"
+           [:comparison :chart-spec]
+           nil
+           doc]
+          ])
+       [:div {:style {:width "30%"
+                      :display "inline-block"
+                      :padding "5px"}}
+        [:h3 {:style {:display "inline-block"
+                        :padding "5px"}}
+         "כל היישובים"]
+        [scatter-component "scatter" scatter-chart-atom]]]
+      ]]))
 
 ;;start the app
 
