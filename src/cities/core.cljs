@@ -77,9 +77,8 @@
         y            (.addMeasureAxis dimple-chart "y" "y")]
     (if (= :measure x-axis-type)
       (let [xys (-> data-series vals first vec)]
-        (dotimes [i (count xys)]
-          (let [xy (xys i)
-                aname (str i)]
+        (doseq [xy xys]
+          (let [aname (:name xy)]
             (let [s (.addSeries dimple-chart
                                 aname
                                 plot
@@ -87,7 +86,9 @@
               (aset s "data" (clj->js [xy]))
               (.assignColor dimple-chart
                             aname
-                            (:color xy)))))
+                            (:color xy)
+                            (:color xy)
+                            0.5))))
         (aset y "overrideMin"
               (->> data-series vals first (map :y) (apply min) (+ -0.1))))
       ;; else
@@ -174,8 +175,8 @@
 
 (defn map-component [id]
   (let [colors (:colors @app-state)
-        setup (fn [] [:div {:style {:height 1200
-                                   :width 400
+        setup (fn [] [:div {:style {:height 1100
+                                   :width 300
                                    :position "relative"
                                    :display "inline-block"
                                    :padding "5px"}
@@ -263,11 +264,11 @@
 (defn city-component [side]
   (or (if-let [cities-map (-> @app-state :cities-map)]
         (let [city (-> @app-state side :code cities-map :name)]
-          [:h3 city]
+          [:h4 city]
           [:div {:style {:display "inline-block"
                          :padding "5px"
-                         :width "30%"}}
-           [:h3 city]
+                         :width "25%"}}
+           [:h4 city]
            [:div
             (let [chart-spec (-> @app-state
                                  side
@@ -277,7 +278,7 @@
                [side :chart-spec]
                nil
                doc])]]))
-      [:h3 "..."]))
+      [:h4 "..."]))
 
 
 
@@ -311,7 +312,7 @@
 
 (def help
   [:div {:style {:background-color "#dddddd"}}
-   [:h2 "מבוא"]
+   [:h3 "מבוא"]
    [:p ""]
    ;; "
    ;; רקע על המאגר
@@ -481,7 +482,7 @@
           nil
           (fn [] (:chart-spec @scatter-chart-atom))
           doc])
-       [:h3 "..."])])
+       [:h4 "..."])])
 
 
 (defn app []
@@ -489,7 +490,7 @@
     [:div {:style {:width "100%" 
                    :direction "rtl"
                    :background-color "#aaaaaa"}}
-     [:h1 {:style {:background-color "#dddddd"
+     [:h2 {:style {:background-color "#dddddd"
                    :padding "5px"}}
       "ויזואליזציה של תנועות אוכלוסיה ליישובים שונים לאורך השנים"]
      [help-component]
@@ -528,12 +529,12 @@
                     "")]]
       [city-component :right]
       [city-component :left]
-      [:div {:style {:width "80%"}}
+      [:div {:style {:width "70%"}}
        (if-let [chart-spec (-> @app-state :comparison :chart-spec)]
          [:div {:style {:width "40%"
                       :display "inline-block"
                       :padding "5px"}}
-          [:h3 {:style {:display "inline-block"
+          [:h4 {:style {:display "inline-block"
                         :padding "5px"}}
            "השוואה"]
           [chart-component
@@ -545,7 +546,7 @@
        [:div {:style {:width "30%"
                       :display "inline-block"
                       :padding "5px"}}
-        [:h3 {:style {:display "inline-block"
+        [:h4 {:style {:display "inline-block"
                         :padding "5px"}}
          "כל היישובים"]
         [scatter-component "scatter" scatter-chart-atom]]]
