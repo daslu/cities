@@ -196,3 +196,42 @@
         (dopar 4 [city-code (keys (cities-map))]
                (println [city-code column-name period (get-freqs city-code column-name period)])))))
 
+
+
+(defn get-all []
+  (time {:cities-map (cities-map)
+         :possible-values (possible-values)
+         :freqs (into {} (for [city-code (keys (cities-map))
+                               column-name [:religion :origin]
+                               period periods]
+                           [{:city-code city-code
+                             :column-name column-name
+                             :period period}
+                            (get-freqs city-code
+                                       column-name
+                                       period)])) 
+         :proportions (into {} (for [column-name [:religion :origin]
+                                     val (ordered-values column-name)
+                                     period periods]
+                                 [{:column-name :column-name
+                                   :val val
+                                   :period period}
+                                  (get-proportions column-name
+                                                   val
+                                                   period)]))
+         :colors (into {} (for [column-name [:religion :origin]
+                                val (ordered-values column-name)
+                                period periods]
+                            [{:column-name :column-name
+                              :val val
+                              :period period}
+                             (get-colors column-name
+                                         val
+                                         period)]))}))
+   
+
+
+
+
+
+

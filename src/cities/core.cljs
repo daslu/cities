@@ -226,6 +226,9 @@
                ;;:order-rule "x"
                :x-axis-type :measure})))))))
 
+(defn get-data [path transf]
+  (transf (get-in (:all @app-state) path)))
+
 (defn req-eval [path form transf]
   (let [code-string (pr-str form)
         update-state (fn [result]
@@ -453,6 +456,27 @@
        (if @show-help?
          [help-button show-help?])])))
 
+(defn get-chart [path city-code type char val period]
+  (case type
+    :freq (get-data [:freqs {:city-code city-code
+                             :column-name (char-to-key char)
+                             :period period}]
+                    (fn [freqs]
+                      {:colors {"כל השאר"
+                                "#9999ff"
+                                "ערך נבחר"
+                                "#ff9999"}
+                       :div {:width "90%" :height 400}
+                       :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
+                       :x-axis char
+                       :y-axis "שכיחות"
+                       :plot js/dimple.plot.bar
+                       :data-series {"כל השאר" (filter #(not= (:x %) val)
+                                                       freqs)
+                                     "ערך נבחר" (filter #(= (:x %) val)
+                                                        freqs)}
+                       :order-rule (-> char char-to-key ordered-values reverse vec)
+                       :x-axis-type :category}))))
 (defn req-chart [path city-code type char val period]
   (case type
     :freq (req-eval path
@@ -474,6 +498,37 @@
                        :order-rule (-> char char-to-key ordered-values reverse vec)
                        :x-axis-type :category}))))
 
+(defn get-comparison-chart [path city-names-by-code type char val period]
+  (case type
+    :freq (req-eval path
+                    (into {} (for [[city-code city-name] city-names-by-code]
+                               {city-name (list 'cities.data/get-freqs city-code (char-to-key char) period)}))
+                    (fn [freqs-by-city-name]
+                      (let [city-names (keys freqs-by-city-name)]
+                        {:colors {(first (keys freqs-by-city-name)) "#339933"
+                                  (second (keys freqs-by-city-name)) "#663366"}
+                         :div {:width "90%" :height 400}
+                         :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
+                         :x-axis char
+                         :y-axis "שכיחות יחסית"
+                         :plot js/dimple.plot.bar
+                         :data-series (apply conj
+                                             (for [[city-name freqs] freqs-by-city-name]
+                                               (let [total (apply + (map :y freqs))]
+                                                 {(str city-name)
+                                                  (->> freqs
+                                                       (map #(-> %
+                                                                 (update-in [:x] (fn [x] (str x " -> " city-name)))
+                                                                 (update-in [:y] (fn [y] (/ y total))))))})))
+                         :order-rule (->> char
+                                          char-to-key
+                                          ordered-values
+                                          (map (fn [x] (for [city-name city-names]
+                                                        (str x " -> " city-name))))
+                                          (apply concat)
+                                          reverse
+                                          vec)
+                         :x-axis-type :category})))))
 (defn req-comparison-chart [path city-names-by-code type char val period]
   (case type
     :freq (req-eval path
@@ -589,6 +644,10 @@
           '(cities.data/possible-values)
           identity)
 
+(req-eval [:all]
+          '(cities.data/get-all)
+         identity)
+
 (defn get-period []
   (or (if-let [period-type (:period-type @doc)]
         (if (= period-type "עברו לישוב בתקופה מסוימת")
@@ -681,6 +740,7 @@
 ;;  :jsload-callback (fn []
 ;;                     (reagent/render-component [app]
 ;;                                               (.getElementById js/document "main-area"))))
+
 
 (reagent/render-component [app]
                           (.getElementById js/document "main-area"))
