@@ -36,7 +36,8 @@
    "2005 ויותר"
    "לא ידוע"
    "גר ביישוב מלידה"
-   "בני 0-14"])
+   "בני 0-14"
+   "הכל"])
 
 (defn split-equally [num coll]
   "Split a collection into a vector of (as close as possible) equally sized parts"
@@ -199,7 +200,7 @@
 
 
 (defn get-all []
-  (time {:cities-map (cities-map)
+  (let [all-data (time {:cities-map (cities-map)
          :possible-values (possible-values)
          :freqs (into {} (for [city-code (keys (cities-map))
                                column-name [:religion :origin]
@@ -213,7 +214,7 @@
          :proportions (into {} (for [column-name [:religion :origin]
                                      val (ordered-values column-name)
                                      period periods]
-                                 [{:column-name :column-name
+                                 [{:column-name column-name
                                    :val val
                                    :period period}
                                   (get-proportions column-name
@@ -222,12 +223,11 @@
          :colors (into {} (for [column-name [:religion :origin]
                                 val (ordered-values column-name)
                                 period periods]
-                            [{:column-name :column-name
-                              :val val
-                              :period period}
-                             (get-colors column-name
-                                         val
-                                         period)]))}))
+                            (get-colors column-name
+                                        val
+                                        period)))})]
+    (println "returning all!")
+    all-data))
    
 
 

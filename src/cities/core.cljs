@@ -13,6 +13,51 @@
 
 (enable-console-print!)
 
+
+(def data (atom {}))
+
+(def cache (atom {}))
+(def already-sent (atom {}))
+(def eval-chans (atom {}))
+(def eval-cache (atom {}))
+
+(defn get-data [path & {:keys [transf]
+                        :or {transf identity}}]
+  (transf (get-in (:all @data) path)))
+
+(defn req-eval [path form transf]
+  (let [code-string (pr-str form)
+        update-state (fn [result]
+                       (do
+                         (swap! data assoc-in
+                                path (transf result))))
+        update-cache-and-state (fn [result]
+                                 (do
+                                   (swap! eval-cache assoc
+                                          code-string result)
+                                   (update-state result)))]
+    (if-let [result (@eval-cache code-string)]
+      (update-state result)
+      ;; else
+      (if (not (@eval-chans code-string))
+        (let [ch (chan 1)]
+          (POST "/eval" {:params code-string
+                         :handler (fn [response]
+                                    (put! ch response)
+                                    (close! ch))})
+          (swap! eval-chans assoc
+                 code-string ch)
+          (go (-> ch
+                  <!
+                  :result
+                  update-cache-and-state)))))))
+
+
+(req-eval [:all]
+          '(cities.data/get-all)
+          identity)
+
+
 ;; define your app data so that it doesn't get over-written on reload
 (defonce app-state (atom {:left {:code 70}
                           :right {:code 2800}
@@ -21,6 +66,17 @@
                 :val "אפריקה"
                 :period-type "עברו לישוב בתקופה מסוימת"
                 :chosen-period "1948-1954"}))
+
+(defn get-period [{:keys [:period-type :chosen-period]}]
+  (or (if-let [period-type (:period-type @doc)]
+        (if (= period-type "עברו לישוב בתקופה מסוימת")
+          (if-let [chosen-period (:chosen-period @doc)]
+            chosen-period)))
+      "הכל"))
+
+(def char-to-key
+  {"דת" :religion
+   "מוצא" :origin})
 
 (def ordered-values
   {:religion ["יהודי"
@@ -62,6 +118,68 @@
    "1995-1999"
    "2000-2004"
    "2005 ויותר"])
+
+
+
+(defn get-chart [city-code type char val period]
+  (case type
+    :freq (get-data [:freqs {:city-code city-code
+                             :column-name (char-to-key char)
+                             :period period}]
+                    :transf (fn [freqs]
+                              (do
+                                {:colors {"כל השאר"
+                                          "#9999ff"
+                                          "ערך נבחר"
+                                          "#ff9999"}
+                                 :div {:width "90%" :height 400}
+                                 :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
+                                 :x-axis char
+                                 :y-axis "שכיחות"
+                                 :plot js/dimple.plot.bar
+                                 :data-series {"כל השאר" (filter #(not= (:x %) val)
+                                                                 freqs)
+                                               "ערך נבחר" (filter #(= (:x %) val)
+                                                                  freqs)}
+                                 :order-rule (-> char char-to-key ordered-values reverse vec)
+                                 :x-axis-type :category})))))
+
+(defn get-comparison-chart [city-names-by-code type char val period]
+  (case type
+    :freq
+    (let [freqs-by-city-name
+          (into {} (for [[city-code city-name] city-names-by-code]
+                     [city-name
+                      (get-data [:freqs {:city-code city-code
+                                         :column-name (char-to-key char)
+                                         :period period}])]))]
+      (println "____________________")
+      (println freqs-by-city-name)
+      (let [city-names (keys freqs-by-city-name)]
+        {:colors {(first (keys freqs-by-city-name)) "#339933"
+                  (second (keys freqs-by-city-name)) "#663366"}
+         :div {:width "90%" :height 400}
+         :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
+         :x-axis char
+         :y-axis "שכיחות יחסית"
+         :plot js/dimple.plot.bar
+         :data-series (apply conj
+                             (for [[city-name freqs] freqs-by-city-name]
+                               (let [total (apply + (map :y freqs))]
+                                 {(str city-name)
+                                  (->> freqs
+                                       (map #(-> %
+                                                 (update-in [:x] (fn [x] (str x " -> " city-name)))
+                                                 (update-in [:y] (fn [y] (/ y total))))))})))
+         :order-rule (->> char
+                          char-to-key
+                          ordered-values
+                          (map (fn [x] (for [city-name city-names]
+                                        (str x " -> " city-name))))
+                          (apply concat)
+                          reverse
+                          vec)
+         :x-axis-type :category}))))
 
 
 (defn draw-chart [{:keys [colors data-series div bounds x-axis y-axis plot order-rule x-axis-type]}]
@@ -112,26 +230,42 @@
   (assoc-in spec
             [:div :id] id))
 
-
-(defn chart-component [id path chart-spec-getter doc]
-  (let [setup (fn [] [:div {:style {:position "relative"
+(defn chart-component [id side deref-doc]
+  (let [_ (println deref-doc)
+        setup (fn [] [:div {:style {:position "relative"
                                    :direction "ltr"}
                            :react-key id ;; ensure React knows this is non-reusable
                            :ref id ;; label it so we can retrieve it via get-node
-                           :id id}
-                     ;; [:p (or (if-let [props (:proportions @app-state)]
-                     ;;           (count props))
-                     ;;         ".")]
-                     ])
+                           :id id}])
         do-render! (fn [] (let [n (.getElementById js/document id)
-                               spec (if path
-                                      (get-in @app-state path)
-                                      (chart-spec-getter doc))]
+                               spec (if side
+                                      (get-chart (-> @app-state side :code)
+                                                 :freq
+                                                 (:char @doc)
+                                                 (:val @doc)
+                                                 (get-period (select-keys @doc
+                                                                          [:period-type
+                                                                           :chosen-period])))
+                                      ;; else -- comparison
+                                      (get-comparison-chart
+                                       (into {}
+                                             (for [side [:left :right]]
+                                               (let [cities-map (get-data [:cities-map])
+                                                     city-code (-> @app-state side :code)
+                                                     city (-> city-code cities-map :name)]
+                                                 [city-code city])))
+                                       :freq
+                                       (:char @doc)
+                                       (:val @doc)
+                                       (get-period (select-keys @doc
+                                                                [:period-type
+                                                                 :chosen-period]))))
+                               ;; _ (println (dissoc spec :plot))
+                               ]
                            (while (.hasChildNodes n)
                              (.removeChild n (.-lastChild n)))
-                           (if (:div spec)
-                             (draw-chart (get-chart-spec-with-id
-                                          id spec)))))]
+                           (draw-chart (get-chart-spec-with-id
+                                        id spec))))]
     (reagent/create-class
      {:render setup
       :component-did-mount do-render!
@@ -174,7 +308,12 @@
   (.removeLayer map1 circle))
 
 (defn map-component [id]
-  (let [colors (:colors @app-state)
+  (let [profile {:column-name (char-to-key (:char @doc))
+                 :period (get-period (select-keys @doc
+                                                  [:period-type
+                                                   :chosen-period]))
+                 :val (:val @doc)}
+        colors (get-data [:colors profile])
         setup (fn [] [:div {:style {:height 1100
                                    :width 300
                                    :position "relative"
@@ -191,14 +330,6 @@
      {:render setup
       :component-did-mount do-render!
       :component-did-update do-render!})))
-
-(def cache (atom {}))
-(def already-sent (atom {}))
-
-(def eval-chans (atom {}))
-(def eval-cache (atom {}))
-
-(def scatter-chart-atom (atom {}))
 
 (defn get-scatter-chart-spec [;; proportions char val
                               doc]
@@ -225,71 +356,33 @@
                :data-series {"יישובים" data}
                ;;:order-rule "x"
                :x-axis-type :measure})))))))
-
-(defn get-data [path transf]
-  (transf (get-in (:all @app-state) path)))
-
-(defn req-eval [path form transf]
-  (let [code-string (pr-str form)
-        update-state (fn [result]
-                       (do (swap! app-state assoc-in
-                                  path (transf result))
-                           (if (= path [:proportions])
-                             (do
-                               (swap! scatter-chart-atom
-                                      assoc :chart-spec
-                                      (get-scatter-chart-spec doc))))))
-        update-cache-and-state (fn [result]
-                                 (do (swap! eval-cache assoc
-                                            code-string result)
-                                     (update-state result)))]
-    (if-let [result (@eval-cache code-string)]
-      (update-state result)
-      ;; else
-      (if (not (@eval-chans code-string))
-        (let [ch (chan 1)]
-          (POST "/eval" {:params code-string
-                         :handler (fn [response]
-                                    (put! ch response)
-                                    (close! ch))})
-          (swap! eval-chans assoc
-                 code-string ch)
-          (go (-> ch
-                  <!
-                  :result
-                  update-cache-and-state)))))))
-
-(def char-to-key
-  {"דת" :religion
-   "מוצא" :origin})
+ 
 
 
-(defn city-component [side]
-  (or (if-let [cities-map (-> @app-state :cities-map)]
-        (let [city (-> @app-state side :code cities-map :name)]
-          [:div {:style {:display "inline-block"
-                         :padding "5px"
-                         :width "25%"}}
-           [:h4 city]
-           (case side
-             :right [:p "(בחירה במפה על ידי לחיצת עכבר ימנית)"]
-             :left [:p "(בחירה במפה על ידי לחיצת עכבר שמאלית)"])
-           [:div
-            (let [chart-spec (-> @app-state
-                                 side
-                                 :chart-spec)]
-              [chart-component
-               (str "chart_" (name side))
-               [side :chart-spec]
-               nil
-               doc])]]))
-      [:h4 "..."]))
+
+(defn city-component [side deref-doc]
+  (let [cities-map (get-data [:cities-map])
+        city-code (-> @app-state side :code)
+        city (-> city-code cities-map :name)]
+    [:div {:style {:display "inline-block"
+                   :padding "5px"
+                   :width "25%"}}
+     [:h4 city]
+     [:h4 (:char deref-doc)]
+     (case side
+       :right [:p "(בחירה במפה על ידי לחיצת עכבר ימנית)"]
+       :left [:p "(בחירה במפה על ידי לחיצת עכבר שמאלית)"])
+     [:div
+      [chart-component
+       (str "chart_" (name side))
+       side
+       deref-doc]]]))
 
 
 
 (defn render-cities! [themap colors]
-  (if-let [cities (->> @app-state
-                       :cities-map
+  (let [cities (->> [:cities-map]
+                       get-data
                        vals
                        (filter :freq))]
     (do (if-let [circles (:circles @app-state)]
@@ -298,13 +391,13 @@
               (swap! app-state
                      #(assoc-in % [:circles] []))))
         (doseq [city cities]
-          (if-let [size (:freq city)]
-            (let [place {:latlng {:lat (:y city)
-                                  :lng (:x city)}
-                         :name (:name city)
-                         :size size
-                         :code (:code city)}]
-              (drop-circle themap place (colors (:code city)))))))))
+          (let [size (:freq city)
+                place {:latlng {:lat (:y city)
+                                :lng (:x city)}
+                       :name (:name city)
+                       :size size
+                       :code (:code city)}]
+            (drop-circle themap place (colors (:code city))))))))
 
 (defn help-button [show-help?]
   [:h4 [:input {:type "button"
@@ -448,7 +541,7 @@
 
 
 (def help-component
-  (let [show-help? (atom true)]
+  (let [show-help? (atom false)]
     (fn []
       [:div
        [help-button show-help?]
@@ -456,145 +549,11 @@
        (if @show-help?
          [help-button show-help?])])))
 
-(defn get-chart [path city-code type char val period]
-  (case type
-    :freq (get-data [:freqs {:city-code city-code
-                             :column-name (char-to-key char)
-                             :period period}]
-                    (fn [freqs]
-                      {:colors {"כל השאר"
-                                "#9999ff"
-                                "ערך נבחר"
-                                "#ff9999"}
-                       :div {:width "90%" :height 400}
-                       :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
-                       :x-axis char
-                       :y-axis "שכיחות"
-                       :plot js/dimple.plot.bar
-                       :data-series {"כל השאר" (filter #(not= (:x %) val)
-                                                       freqs)
-                                     "ערך נבחר" (filter #(= (:x %) val)
-                                                        freqs)}
-                       :order-rule (-> char char-to-key ordered-values reverse vec)
-                       :x-axis-type :category}))))
-(defn req-chart [path city-code type char val period]
-  (case type
-    :freq (req-eval path
-                    (list 'cities.data/get-freqs city-code (char-to-key char) period)
-                    (fn [freqs]
-                      {:colors {"כל השאר"
-                                "#9999ff"
-                                "ערך נבחר"
-                                "#ff9999"}
-                       :div {:width "90%" :height 400}
-                       :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
-                       :x-axis char
-                       :y-axis "שכיחות"
-                       :plot js/dimple.plot.bar
-                       :data-series {"כל השאר" (filter #(not= (:x %) val)
-                                                       freqs)
-                                     "ערך נבחר" (filter #(= (:x %) val)
-                                                        freqs)}
-                       :order-rule (-> char char-to-key ordered-values reverse vec)
-                       :x-axis-type :category}))))
+;; (defn get-colors [char val period]
+;;   (get-data [:colors (char-to-key char) val period]))
 
-(defn get-comparison-chart [path city-names-by-code type char val period]
-  (case type
-    :freq (req-eval path
-                    (into {} (for [[city-code city-name] city-names-by-code]
-                               {city-name (list 'cities.data/get-freqs city-code (char-to-key char) period)}))
-                    (fn [freqs-by-city-name]
-                      (let [city-names (keys freqs-by-city-name)]
-                        {:colors {(first (keys freqs-by-city-name)) "#339933"
-                                  (second (keys freqs-by-city-name)) "#663366"}
-                         :div {:width "90%" :height 400}
-                         :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
-                         :x-axis char
-                         :y-axis "שכיחות יחסית"
-                         :plot js/dimple.plot.bar
-                         :data-series (apply conj
-                                             (for [[city-name freqs] freqs-by-city-name]
-                                               (let [total (apply + (map :y freqs))]
-                                                 {(str city-name)
-                                                  (->> freqs
-                                                       (map #(-> %
-                                                                 (update-in [:x] (fn [x] (str x " -> " city-name)))
-                                                                 (update-in [:y] (fn [y] (/ y total))))))})))
-                         :order-rule (->> char
-                                          char-to-key
-                                          ordered-values
-                                          (map (fn [x] (for [city-name city-names]
-                                                        (str x " -> " city-name))))
-                                          (apply concat)
-                                          reverse
-                                          vec)
-                         :x-axis-type :category})))))
-(defn req-comparison-chart [path city-names-by-code type char val period]
-  (case type
-    :freq (req-eval path
-                    (into {} (for [[city-code city-name] city-names-by-code]
-                               {city-name (list 'cities.data/get-freqs city-code (char-to-key char) period)}))
-                    (fn [freqs-by-city-name]
-                      (let [city-names (keys freqs-by-city-name)]
-                        {:colors {(first (keys freqs-by-city-name)) "#339933"
-                                  (second (keys freqs-by-city-name)) "#663366"}
-                         :div {:width "90%" :height 400}
-                         :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
-                         :x-axis char
-                         :y-axis "שכיחות יחסית"
-                         :plot js/dimple.plot.bar
-                         :data-series (apply conj
-                                             (for [[city-name freqs] freqs-by-city-name]
-                                               (let [total (apply + (map :y freqs))]
-                                                 {(str city-name)
-                                                  (->> freqs
-                                                       (map #(-> %
-                                                                 (update-in [:x] (fn [x] (str x " -> " city-name)))
-                                                                 (update-in [:y] (fn [y] (/ y total))))))})))
-                         :order-rule (->> char
-                                          char-to-key
-                                          ordered-values
-                                          (map (fn [x] (for [city-name city-names]
-                                                        (str x " -> " city-name))))
-                                          (apply concat)
-                                          reverse
-                                          vec)
-                         :x-axis-type :category})))))
-
-(defn req-charts [char val period]
-  (do (doseq [side [:left :right]]
-        (do
-          (if-let [city-code (-> @app-state side :code)]
-            (req-chart [side :chart-spec]
-                       city-code
-                       :freq
-                       char
-                       val
-                       period))))
-      (if-let [cities-map (:cities-map @app-state)]
-        (do
-          (let [city-codes (map (comp :code @app-state)
-                                [:left :right])]
-            (if (every? identity city-codes)
-              (let [city-names-by-code (into {}
-                                             (for [city-code city-codes]
-                                               {city-code (-> city-code cities-map :name)}))]
-                (req-comparison-chart [:comparison :chart-spec]
-                                      city-names-by-code
-                                      :freq
-                                      char val period))))))))
-
-(defn req-colors [char val period]
-  (req-eval [:colors]
-            (list 'cities.data/get-colors (char-to-key char) val period)
-            identity))
-
-(defn req-proportions [char val period]
-  (req-eval [:proportions]
-            (list 'cities.data/get-proportions (char-to-key char) val period)
-            identity))
-
-
+;; (defn get-proportions [char val period]
+;;   (get-data [:proportions (char-to-key char) val period]))
 
 
 (defn chooser-component [path values title]
@@ -636,111 +595,111 @@
                             (swap! doc assoc-in
                                    path (values (-> % .-target .-value))))}]]))
 
-(req-eval [:cities-map]
-          '(cities.data/cities-map)
-          identity)
 
-(req-eval [:possible-values]
-          '(cities.data/possible-values)
-          identity)
-
-(req-eval [:all]
-          '(cities.data/get-all)
-         identity)
-
-(defn get-period []
-  (or (if-let [period-type (:period-type @doc)]
-        (if (= period-type "עברו לישוב בתקופה מסוימת")
-          (if-let [chosen-period (:chosen-period @doc)]
-            chosen-period)))
-      "הכל"))
-
-(defn scatter-component [id scatter-chart-atom]
+(defn scatter-component [id]
   [:div
    [:p ""]
-   (or (if-let [spec (:chart-spec @scatter-chart-atom)]
-         [chart-component
-          id
-          nil
-          (fn [] (:chart-spec @scatter-chart-atom))
-          doc])
-       [:h4 "..."])])
+   [chart-component
+    id
+    nil
+    (fn [] (:chart-spec {} ;;@scatter-chart-atom
+           ))
+    doc]])
 
+
+;; (def state (atom {:x 1
+;;                   :y 2}))
+
+;; (defn c1 [prefix]
+;;   (let [rend (fn [] [:h1 (pr-str (:x @state)
+;;                                 [@state])])]
+;;     (reagent/create-class
+;;      {:render rend
+;;       :component-did-mount rend
+;;       :component-did-update rend})))
+
+;; (defn c2 []
+;;   [:h1
+;;    [:input {:type "button"
+;;             :value "......"
+;;             :on-click #(do (swap! state update-in [:x] inc)
+;;                            (swap! state update-in [:y] dec))} ]
+;;    [c1 :A]])
+
+;; (defn f []
+;;   (* 1000 (:x @state)))
 
 (defn app []
-  (fn []
-    [:div {:style {:width "100%" 
-                   :direction "rtl"
-                   :background-color "#aaaaaa"}}
-     [:h2 {:style {:background-color "#dddddd"
-                   :padding "5px"}}
-      "ויזואליזציה של תנועות אוכלוסיה ליישובים שונים לאורך השנים"]
-     [help-component]
-     [:p (if-let [themap (:map @app-state)]
-           (let [colors (or (:colors @app-state) {})]
-             (do
-               (render-cities! themap colors))
-             "."))]
-     [:div {:style {:float "right"}}
-      [map-component "map"]]
+  [:div {:style {:width "100%" 
+                 :direction "rtl"
+                 :background-color "#aaaaaa"}}
+   ;; [c1 (:x @state)]
+   ;; [c2]
+   [:h2 {:style {:background-color "#dddddd"
+                 :padding "5px"}}
+    "ויזואליזציה של תנועות אוכלוסיה ליישובים שונים לאורך השנים"]
+   [help-component]
+   (if (not (:all @data))
+     [:h1 "נתונים בטעינה..."]
+     ;; else -- data are ready
      [:div
-      [chooser-component
-       [:char]
-       ["דת" "מוצא"]
-       "מאפיין לניתוח"]
-      [chooser-component
-       [:val]
-       (-> @doc :char char-to-key ordered-values vec)
-       "ערך נבחר"]
-      [chooser-component
-       [:period-type]
-       ["כל האוכלוסיה"
-        "עברו לישוב בתקופה מסוימת"]
-       "אוכלוסיה"]
-      (if (= "עברו לישוב בתקופה מסוימת" (@doc :period-type))
-        [:div
-         [slider-component
-          [:chosen-period]
-          periods-entered
-          "תקופה"]])
-      [:div [:p (do (if-let [char (@doc :char)]
-                      (if-let [val (@doc :val)]
-                        (do (req-charts char val (get-period))
-                            (req-colors char val (get-period))
-                            (req-proportions char val (get-period)))))
-                    "")]]
-      [city-component :right]
-      [city-component :left]
-      [:div {:style {:width "70%"}}
-       (if-let [chart-spec (-> @app-state :comparison :chart-spec)]
-         [:div {:style {:width "40%"
-                        :display "inline-block"
-                        :padding "5px"}}
-          [:h4 {:style {:display "inline-block"
-                        :padding "5px"}}
-           "השוואה"]
-          [chart-component
-           "comparison"
-           [:comparison :chart-spec]
-           nil
-           doc]
-          ])
-       [:div {:style {:width "30%"
-                      :display "inline-block"
-                      :padding "5px"}}
-        [:h4 {:style {:display "inline-block"
-                      :padding "5px"}}
-         "כל היישובים"]
-        [scatter-component "scatter" scatter-chart-atom]]]
-      ]]))
+      [:p (if-let [themap (:map @app-state)]
+            (let [colors (or (:colors @app-state) {})]
+              (do
+                (render-cities! themap colors))
+              "."))]
+      [:div {:style {:float "right"}}
+       [map-component "map"]]
+      [:div
+       [chooser-component
+        [:char]
+        ["דת" "מוצא"]
+        "מאפיין לניתוח"]
+       [chooser-component
+        [:val]
+        (-> @doc :char char-to-key ordered-values vec)
+        "ערך נבחר"]
+       [chooser-component
+        [:period-type]
+        ["כל האוכלוסיה"
+         "עברו לישוב בתקופה מסוימת"]
+        "אוכלוסיה"]
+       (if (= "עברו לישוב בתקופה מסוימת" (@doc :period-type))
+         [:div
+          [slider-component
+           [:chosen-period]
+           periods-entered
+           "תקופה"]])
+       [city-component :right @doc]
+       [city-component :left @doc]
+       [:div {:style {:width "70%"}}
+        [:div {:style {:width "40%"
+                       :display "inline-block"
+                       :padding "5px"}}
+         [:h4 {:style {:display "inline-block"
+                       :padding "5px"}}
+          "השוואה"]
+         [chart-component
+          "comparison"
+          nil
+          doc]]]
+       ;;  ;; [:div {:style {:width "30%"
+       ;;  ;;                :display "inline-block"
+       ;;  ;;                :padding "5px"}}
+       ;;  ;;  [:h4 {:style {:display "inline-block"
+       ;;  ;;                :padding "5px"}}
+       ;;  ;;   "כל היישובים"]
+       ;;  ;;  [scatter-component "scatter"]]
+       ;;  ]
+        ]])])
 
-;;start the app
+;; start the app
 
-;; (fw/watch-and-reload
-;;  :jsload-callback (fn []
-;;                     (reagent/render-component [app]
-;;                                               (.getElementById js/document "main-area"))))
+(fw/watch-and-reload
+   :jsload-callback (fn []
+                      (reagent/render-component [app]
+                                                (.getElementById js/document "main-area"))))
 
 
-(reagent/render-component [app]
-                          (.getElementById js/document "main-area"))
+;; (reagent/render-component [app]
+;;                             (.getElementById js/document "main-area"))
