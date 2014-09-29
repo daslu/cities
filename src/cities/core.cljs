@@ -682,7 +682,7 @@
          [chart-component
           "comparison"
           nil
-          doc]]]
+          @doc]]]
        ;;  ;; [:div {:style {:width "30%"
        ;;  ;;                :display "inline-block"
        ;;  ;;                :padding "5px"}}
