@@ -223,9 +223,12 @@
          :colors (into {} (for [column-name [:religion :origin]
                                 val (ordered-values column-name)
                                 period periods]
-                            (get-colors column-name
-                                        val
-                                        period)))})]
+                            [{:column-name column-name
+                                   :val val
+                              :period period}
+                             (get-colors column-name
+                                         val
+                                         period)]))})]
     (println "returning all!")
     all-data))
    

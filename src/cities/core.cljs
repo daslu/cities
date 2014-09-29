@@ -153,8 +153,6 @@
                       (get-data [:freqs {:city-code city-code
                                          :column-name (char-to-key char)
                                          :period period}])]))]
-      (println "____________________")
-      (println freqs-by-city-name)
       (let [city-names (keys freqs-by-city-name)]
         {:colors {(first (keys freqs-by-city-name)) "#339933"
                   (second (keys freqs-by-city-name)) "#663366"}
@@ -181,6 +179,16 @@
                           vec)
          :x-axis-type :category}))))
 
+(defn get-scatter-chart [cities-map proportions colors data]
+  {:colors {}
+   :div {:width "90%" :height 400}
+   :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
+   :x-axis (str "שכיחות יחסית של " char ": " val)
+   :y-axis "קו רוחב"
+   :plot js/dimple.plot.bubble
+   :data-series {"יישובים" data}
+   ;;:order-rule "x"
+   :x-axis-type :measure})
 
 (defn draw-chart [{:keys [colors data-series div bounds x-axis y-axis plot order-rule x-axis-type]}]
   (let [{:keys [id width height]} div
@@ -231,22 +239,24 @@
             [:div :id] id))
 
 (defn chart-component [id side deref-doc]
-  (let [_ (println deref-doc)
-        setup (fn [] [:div {:style {:position "relative"
+  (let [setup (fn [] [:div {:style {:position "relative"
                                    :direction "ltr"}
                            :react-key id ;; ensure React knows this is non-reusable
                            :ref id ;; label it so we can retrieve it via get-node
                            :id id}])
         do-render! (fn [] (let [n (.getElementById js/document id)
-                               spec (if side
-                                      (get-chart (-> @app-state side :code)
-                                                 :freq
-                                                 (:char @doc)
-                                                 (:val @doc)
-                                                 (get-period (select-keys @doc
-                                                                          [:period-type
-                                                                           :chosen-period])))
-                                      ;; else -- comparison
+                               spec (cond
+                                     ;;;;
+                                     (#{:left :right} side)
+                                    (get-chart (-> @app-state side :code)
+                                               :freq
+                                               (:char @doc)
+                                               (:val @doc)
+                                               (get-period (select-keys @doc
+                                                                        [:period-type
+                                                                         :chosen-period])))
+                                    ;;;;
+                                    (= :comparison side)
                                       (get-comparison-chart
                                        (into {}
                                              (for [side [:left :right]]
@@ -259,9 +269,28 @@
                                        (:val @doc)
                                        (get-period (select-keys @doc
                                                                 [:period-type
-                                                                 :chosen-period]))))
-                               ;; _ (println (dissoc spec :plot))
-                               ]
+                                                                 :chosen-period])))
+                                      ;;;;
+                                      (= :scatter side)
+                                      (let [profile {:column-name (char-to-key (:char @doc))
+                                                     :period (get-period (select-keys @doc
+                                                                                      [:period-type
+                                                                                       :chosen-period]))
+                                                     :val (:val @doc)}char (@doc :char)
+                                            cities-map (get-data [:cities-map])
+                                            proportions (get-data [:proportions profile])
+                                            colors (get-data [:colors profile])
+                                            data (vec
+                                                  (for [city (vals cities-map)]
+                                                    (let [code (:code city)]
+                                                      {:x (or (proportions code)
+                                                              0)
+                                                       :y (:y city)
+                                                       :size (* 10 (Math/sqrt (:freq city)))
+                                                       :color (colors code)
+                                                       :name (:name city)})))]
+                                        (get-scatter-chart
+                                         cities-map proportions colors data)))]
                            (while (.hasChildNodes n)
                              (.removeChild n (.-lastChild n)))
                            (draw-chart (get-chart-spec-with-id
@@ -308,13 +337,7 @@
   (.removeLayer map1 circle))
 
 (defn map-component [id]
-  (let [profile {:column-name (char-to-key (:char @doc))
-                 :period (get-period (select-keys @doc
-                                                  [:period-type
-                                                   :chosen-period]))
-                 :val (:val @doc)}
-        colors (get-data [:colors profile])
-        setup (fn [] [:div {:style {:height 1100
+  (let [setup (fn [] [:div {:style {:height 1100
                                    :width 300
                                    :position "relative"
                                    :display "inline-block"
@@ -330,33 +353,6 @@
      {:render setup
       :component-did-mount do-render!
       :component-did-update do-render!})))
-
-(defn get-scatter-chart-spec [;; proportions char val
-                              doc]
-  (if-let [char (@doc :char)]
-    (if-let [val (@doc :val)]
-      (if-let [cities-map (:cities-map @app-state)]
-        (if-let [proportions (:proportions @app-state)]
-          (if-let [colors (:colors @app-state)]
-            (let [data (vec
-                        (for [city (vals cities-map)]
-                          (let [code (:code city)]
-                            {:x (or (proportions code)
-                                    0)
-                             :y (:y city)
-                             :size (* 10 (Math/sqrt (:freq city)))
-                             :color (colors code)
-                             :name (:name city)})))]
-              {:colors {}
-               :div {:width "90%" :height 400}
-               :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
-               :x-axis (str "שכיחות יחסית של " char ": " val)
-               :y-axis "קו רוחב"
-               :plot js/dimple.plot.bubble
-               :data-series {"יישובים" data}
-               ;;:order-rule "x"
-               :x-axis-type :measure})))))))
- 
 
 
 
@@ -385,19 +381,17 @@
                        get-data
                        vals
                        (filter :freq))]
-    (do (if-let [circles (:circles @app-state)]
-          (do (doseq [circle circles]
-                (remove-circle themap circle))
-              (swap! app-state
-                     #(assoc-in % [:circles] []))))
-        (doseq [city cities]
-          (let [size (:freq city)
-                place {:latlng {:lat (:y city)
-                                :lng (:x city)}
-                       :name (:name city)
-                       :size size
-                       :code (:code city)}]
-            (drop-circle themap place (colors (:code city))))))))
+    (if-let [circles (:circles @app-state)]
+      (doseq [circle circles]
+        (remove-circle themap circle)))
+    (doseq [city cities]
+      (let [size (:freq city)
+            place {:latlng {:lat (:y city)
+                            :lng (:x city)}
+                   :name (:name city)
+                   :size size
+                   :code (:code city)}]
+        (drop-circle themap place (colors (:code city)))))))
 
 (defn help-button [show-help?]
   [:h4 [:input {:type "button"
@@ -595,39 +589,22 @@
                             (swap! doc assoc-in
                                    path (values (-> % .-target .-value))))}]]))
 
-
-(defn scatter-component [id]
-  [:div
-   [:p ""]
-   [chart-component
-    id
-    nil
-    (fn [] (:chart-spec {} ;;@scatter-chart-atom
-           ))
-    doc]])
-
-
-;; (def state (atom {:x 1
-;;                   :y 2}))
-
-;; (defn c1 [prefix]
-;;   (let [rend (fn [] [:h1 (pr-str (:x @state)
-;;                                 [@state])])]
-;;     (reagent/create-class
-;;      {:render rend
-;;       :component-did-mount rend
-;;       :component-did-update rend})))
-
-;; (defn c2 []
-;;   [:h1
-;;    [:input {:type "button"
-;;             :value "......"
-;;             :on-click #(do (swap! state update-in [:x] inc)
-;;                            (swap! state update-in [:y] dec))} ]
-;;    [c1 :A]])
-
-;; (defn f []
-;;   (* 1000 (:x @state)))
+(defn cities-component [docref]
+  (let [setup (fn [] [:p ""])
+        do-render! (fn []
+                     [:p (if-let [themap (:map @app-state)]
+                           (let [profile {:column-name (char-to-key (:char @doc))
+                                          :period (get-period (select-keys @doc
+                                                                           [:period-type
+                                                                            :chosen-period]))
+                                          :val (:val @doc)}
+                                 colors (get-data [:colors profile])]
+                             (render-cities! themap colors)))])]
+    
+    (reagent/create-class
+     {:render setup
+      :component-did-mount do-render!
+      :component-did-update do-render!})))
 
 (defn app []
   [:div {:style {:width "100%" 
@@ -643,11 +620,6 @@
      [:h1 "נתונים בטעינה..."]
      ;; else -- data are ready
      [:div
-      [:p (if-let [themap (:map @app-state)]
-            (let [colors (or (:colors @app-state) {})]
-              (do
-                (render-cities! themap colors))
-              "."))]
       [:div {:style {:float "right"}}
        [map-component "map"]]
       [:div
@@ -672,26 +644,30 @@
            "תקופה"]])
        [city-component :right @doc]
        [city-component :left @doc]
-       [:div {:style {:width "70%"}}
+       [:div {:style {:width "90%"}}
         [:div {:style {:width "40%"
                        :display "inline-block"
                        :padding "5px"}}
-         [:h4 {:style {:display "inline-block"
-                       :padding "5px"}}
+         [:h4 {:style {;; :display "inline-block"
+                       ;; :padding "5px"
+                       }}
           "השוואה"]
          [chart-component
           "comparison"
-          nil
-          @doc]]]
-       ;;  ;; [:div {:style {:width "30%"
-       ;;  ;;                :display "inline-block"
-       ;;  ;;                :padding "5px"}}
-       ;;  ;;  [:h4 {:style {:display "inline-block"
-       ;;  ;;                :padding "5px"}}
-       ;;  ;;   "כל היישובים"]
-       ;;  ;;  [scatter-component "scatter"]]
-       ;;  ]
-        ]])])
+          :comparison
+          @doc]]
+        [:div {:style {:width "30%"
+                       :display "inline-block"
+                       :padding "5px"}}
+         [:h4 {:style {;; :display "inline-block"
+                       ;; :padding "5px"
+                       }}
+          "כל היישובים"]
+         [chart-component
+          "scatter"
+          :scatter
+          @doc]]]]
+      [cities-component @doc]])])
 
 ;; start the app
 
