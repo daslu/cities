@@ -674,14 +674,11 @@
 
 ;; start the app
 
-(fw/watch-and-reload
-   :jsload-callback (fn []
-                      (reagent/render-component [app]
-                                                (.getElementById js/document "main-area"))))
+;; (fw/watch-and-reload
+;;    :jsload-callback (fn []
+;;                       (reagent/render-component [app]
+;;                                                 (.getElementById js/document "main-area"))))
 
 
-;; (reagent/render-component [app]
-;;                             (.getElementById js/document "main-area"))
-
-
-;; TODO: handle missing cases
+(reagent/render-component [app]
+                            (.getElementById js/document "main-area"))
