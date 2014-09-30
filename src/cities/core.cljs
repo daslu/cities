@@ -59,13 +59,13 @@
 
 
 ;; define your app data so that it doesn't get over-written on reload
-(defonce app-state (atom {:left {:code 70}
-                          :right {:code 2800}
-                          :comparison {}}))
+(defonce app-state (atom {}))
 (def doc (atom {:char "מוצא"
                 :val "אפריקה"
                 :period-type "עברו לישוב בתקופה מסוימת"
-                :chosen-period "1948-1954"}))
+                :chosen-period "1948-1954"
+                :left {:code 70}
+                :right {:code 2800}}))
 
 (defn get-period [{:keys [:period-type :chosen-period]}]
   (or (if-let [period-type (:period-type @doc)]
@@ -179,7 +179,7 @@
                           vec)
          :x-axis-type :category}))))
 
-(defn get-scatter-chart [cities-map proportions colors data]
+(defn get-scatter-chart [cities-map char val proportions colors data]
   {:colors {}
    :div {:width "90%" :height 400}
    :bounds {:x "15%" :y "15%" :width "80%" :height "50%"}
@@ -248,7 +248,7 @@
                                spec (cond
                                      ;;;;
                                      (#{:left :right} side)
-                                    (get-chart (-> @app-state side :code)
+                                    (get-chart (-> @doc side :code)
                                                :freq
                                                (:char @doc)
                                                (:val @doc)
@@ -261,7 +261,7 @@
                                        (into {}
                                              (for [side [:left :right]]
                                                (let [cities-map (get-data [:cities-map])
-                                                     city-code (-> @app-state side :code)
+                                                     city-code (-> @doc side :code)
                                                      city (-> city-code cities-map :name)]
                                                  [city-code city])))
                                        :freq
@@ -272,11 +272,13 @@
                                                                  :chosen-period])))
                                       ;;;;
                                       (= :scatter side)
-                                      (let [profile {:column-name (char-to-key (:char @doc))
+                                      (let [val (:val @doc)
+                                            char (:char @doc)
+                                            profile {:column-name (char-to-key char)
                                                      :period (get-period (select-keys @doc
                                                                                       [:period-type
                                                                                        :chosen-period]))
-                                                     :val (:val @doc)}char (@doc :char)
+                                                     :val val}
                                             cities-map (get-data [:cities-map])
                                             proportions (get-data [:proportions profile])
                                             colors (get-data [:colors profile])
@@ -290,7 +292,7 @@
                                                        :color (colors code)
                                                        :name (:name city)})))]
                                         (get-scatter-chart
-                                         cities-map proportions colors data)))]
+                                         cities-map char val proportions colors data)))]
                            (while (.hasChildNodes n)
                              (.removeChild n (.-lastChild n)))
                            (draw-chart (get-chart-spec-with-id
@@ -326,9 +328,9 @@
                                                     "#333333")
                                          :weight 2})
                            map1))]
-    (.on circle "click" (fn [e] (swap! app-state
+    (.on circle "click" (fn [e] (swap! doc
                                       assoc-in [:left :code] (:code place))))
-    (.on circle "contextmenu" (fn [e] (swap! app-state
+    (.on circle "contextmenu" (fn [e] (swap! doc
                                             assoc-in [:right :code] (:code place))))
     (swap! app-state
            #(update-in % [:circles] (partial cons circle)))))
@@ -358,7 +360,7 @@
 
 (defn city-component [side deref-doc]
   (let [cities-map (get-data [:cities-map])
-        city-code (-> @app-state side :code)
+        city-code (-> @doc side :code)
         city (-> city-code cities-map :name)]
     [:div {:style {:display "inline-block"
                    :padding "5px"
@@ -562,14 +564,15 @@
                           :type "button" :value val
                           :on-click (fn []
                                       (swap! doc assoc-in path val))}])]
-    [:div
-     [:h4 {:style {:display "inline-block"
-                   :padding "5px"}}
-      (str title ":")]
-     (if (not (values-set (get-in @doc path)))
-       (swap! doc assoc-in path (first values)))
-     (for [val values]
-       [option val])]))
+    (if option
+      [:div
+       [:h4 {:style {:display "inline-block"
+                     :padding "5px"}}
+        (str title ":")]
+       (do (if (not (values-set (get-in @doc path)))
+             (swap! doc assoc-in path (first values)))
+           (for [val values]
+             [option val]))])))
 
 
 (defn slider-component [path values title]
@@ -679,3 +682,6 @@
 
 ;; (reagent/render-component [app]
 ;;                             (.getElementById js/document "main-area"))
+
+
+;; TODO: handle missing cases

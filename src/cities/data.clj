@@ -176,7 +176,8 @@
                    rescaling (->> sorted-prop-vals
                                   (map-indexed (fn [index prop]
                                                  [prop
-                                                  (/ index (inc (count sorted-prop-vals)))]))
+                                                  (/ (inc index)
+                                                     (inc (count sorted-prop-vals)))]))
                                   (into {}))]
                (into {}
                      (for [city-code (keys (cities-map))]
@@ -220,7 +221,7 @@
                                   (get-proportions column-name
                                                    val
                                                    period)]))
-         :colors (into {} (for [column-name [:religion :origin]
+                        :colors (into {} (for [column-name [:religion :origin]
                                 val (ordered-values column-name)
                                 period periods]
                             [{:column-name column-name
