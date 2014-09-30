@@ -537,7 +537,7 @@
 
 
 (def help-component
-  (let [show-help? (atom false)]
+  (let [show-help? (atom true)]
     (fn []
       [:div
        [help-button show-help?]
