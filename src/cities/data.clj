@@ -230,7 +230,7 @@
                              (get-colors column-name
                                          val
                                          period)]))})]
-    (println "returning all!")
+    (println [(java.util.Date.) "returning all!"])
     all-data))
    
 
