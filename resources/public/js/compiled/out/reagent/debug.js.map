@@ -1,6 +1,6 @@
 {"version":3,
  "file":
- "/home/we/projects/cities/resources/public/js/compiled/out/reagent/debug.js",
+ "/root/cities/resources/public/js/compiled/out/reagent/debug.js",
  "sources":["debug.cljs"],
  "lineCount":5,
  "mappings":";AAAA",

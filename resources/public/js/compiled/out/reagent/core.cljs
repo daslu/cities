@@ -1,43 +1,85 @@
 
 (ns reagent.core
   (:refer-clojure :exclude [partial atom flush])
-  (:require-macros [reagent.debug :refer [dbg prn]])
   (:require [reagent.impl.template :as tmpl]
             [reagent.impl.component :as comp]
             [reagent.impl.util :as util]
             [reagent.impl.batching :as batch]
-            [reagent.ratom :as ratom]))
-
-(def React util/React)
+            [reagent.ratom :as ratom]
+            [reagent.debug :as deb :refer-macros [dbg prn]]
+            [reagent.interop :refer-macros [.' .!]]))
 
 (def is-client util/is-client)
 
-(defn as-component
-  "Turns a vector of Hiccup syntax into a React component. Returns form unchanged if it is not a vector."
-  [form]
-  (tmpl/as-component form))
+(defn create-element
+  "Create a native React element, by calling React.createElement directly.
 
-(defn render-component
-  "Render a Reagent component into the DOM. The first argument may be either a
-vector (using Reagent's Hiccup syntax), or a React component. The second argument should be a DOM node.
+That means the second argument must be a javascript object (or nil), and
+that any Reagent hiccup forms must be processed with as-element. For example
+like this:
+
+   (r/create-element \"div\" #js{:className \"foo\"}
+      \"Hi \" (r/as-element [:strong \"world!\"])
+
+which is equivalent to
+
+   [:div.foo \"Hi\" [:strong \"world!\"]]
+"
+  ([type]
+   (create-element type nil))
+  ([type props]
+   (assert (not (map? props)))
+   (js/React.createElement type props))
+  ([type props child]
+   (assert (not (map? props)))
+   (js/React.createElement type props child))
+  ([type props child & children]
+   (assert (not (map? props)))
+   (apply js/React.createElement type props child children)))
+
+(defn as-element
+  "Turns a vector of Hiccup syntax into a React element. Returns form unchanged if it is not a vector."
+  [form]
+  (tmpl/as-element form))
+
+(defn render
+  "Render a Reagent component into the DOM. The first argument may be 
+either a vector (using Reagent's Hiccup syntax), or a React element. The second argument should be a DOM node.
 
 Optionally takes a callback that is called when the component is in place.
 
 Returns the mounted component instance."
   ([comp container]
-     (render-component comp container nil))
+   (render comp container nil))
   ([comp container callback]
-     (.renderComponent React (as-component comp) container callback)))
+   (let [f (fn []
+             (as-element (if (fn? comp) (comp) comp)))]
+     (util/render-component f container callback))))
 
 (defn unmount-component-at-node
   "Remove a component from the given DOM node."
   [container]
-  (.unmountComponentAtNode React container))
+  (util/unmount-component-at-node container))
 
-(defn render-component-to-string
+(defn render-to-string
   "Turns a component into an HTML string."
   ([component]
-     (.renderComponentToString React (as-component component))))
+     (binding [comp/*non-reactive* true]
+       (.' js/React renderToString (as-element component)))))
+
+;; For backward compatibility
+(def as-component as-element)
+(def render-component render)
+(def render-component-to-string render-to-string)
+
+(defn render-to-static-markup
+  "Turns a component into an HTML string, without data-react-id attributes, etc."
+  ([component]
+     (binding [comp/*non-reactive* true]
+       (.' js/React renderToStaticMarkup (as-element component)))))
+
+(defn ^:export force-update-all []
+  (util/force-update-all))
 
 (defn create-class
   "Create a component, React style. Should be called with a map,
@@ -55,7 +97,7 @@ looking like this:
 Everything is optional, except :render.
 "
   [spec]
-  (tmpl/create-class spec))
+  (comp/create-class spec))
 
 
 (defn current-component
@@ -69,6 +111,7 @@ Everything is optional, except :render.
   "Returns the state of a component, as set with replace-state or set-state."
   [this]
   (assert (util/reagent-component? this))
+  ;; TODO: Warn if top-level component
   (comp/state this))
 
 (defn replace-state
@@ -107,8 +150,7 @@ Everything is optional, except :render.
 (defn dom-node
   "Returns the root DOM node of a mounted component."
   [this]
-  (.getDOMNode this))
-
+  (.' this getDOMNode))
 
 (defn merge-props
   "Utility function that merges two maps, handling :class and :style
@@ -135,6 +177,53 @@ re-rendered."
   ([x] (ratom/atom x))
   ([x & rest] (apply ratom/atom x rest)))
 
+
+(defn wrap
+  "Provide a combination of value and callback, that looks like an atom.
+
+  The first argument can be any value, that will be returned when the
+  result is deref'ed.
+
+  The second argument should be a function, that is called with the
+  optional extra arguments provided to wrap, and the new value of the
+  resulting 'atom'.
+
+  Use for example like this:
+
+  (wrap (:foo @state)
+        swap! state assoc :foo)
+
+  Probably useful only for passing to child components."
+  [value reset-fn & args]
+  (assert (ifn? reset-fn))
+  (util/make-wrapper value reset-fn args))
+
+
+;; RCursor
+
+(defn cursor
+  "Provide a cursor into a Reagent atom.
+
+Behaves like a Reagent atom but focuses updates and derefs to
+the specified path within the wrapped Reagent atom. e.g.,
+  (let [c (cursor [:nested :content] ra)]
+    ... @c ;; equivalent to (get-in @ra [:nested :content])
+    ... (reset! c 42) ;; equivalent to (swap! ra assoc-in [:nested :content] 42)
+    ... (swap! c inc) ;; equivalence to (swap! ra update-in [:nested :content] inc)
+    )
+The third argument may be a function, that is called with
+optional extra arguments provided to cursor, and the new value of the
+resulting 'atom'. If such a function is given, it should update the
+given Reagent atom.
+"
+  ([path] (fn [ra] (cursor path ra)))
+  ([path ra]
+   (assert (satisfies? IDeref ra))
+   (ratom/cursor path ra))
+  ([path ra reset-fn & args]
+   (assert (satisfies? IDeref ra))
+   (assert (ifn? reset-fn))
+   (ratom/cursor path ra reset-fn args)))
 
 ;; Utilities
 

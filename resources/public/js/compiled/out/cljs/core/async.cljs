@@ -6,7 +6,8 @@
               [cljs.core.async.impl.timers :as timers]
               [cljs.core.async.impl.dispatch :as dispatch]
               [cljs.core.async.impl.ioc-helpers :as helpers])
-    (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
+    (:require-macros [cljs.core.async.impl.ioc-macros :as ioc]
+                     [cljs.core.async.macros :refer [go go-loop]]))
 
 (defn- fn-handler [f]
   (reify
@@ -39,16 +40,26 @@
   (satisfies? impl/UnblockingBuffer buff))
 
 (defn chan
-  "Creates a channel with an optional buffer. If buf-or-n is a number,
-  will create and use a fixed buffer of that size."
+  "Creates a channel with an optional buffer, an optional transducer (like (map f),
+  (filter p) etc or a composition thereof), and an optional exception handler.
+  If buf-or-n is a number, will create and use a fixed buffer of that size. If a
+  transducer is supplied a buffer must be specified. ex-handler must be a
+  fn of one argument - if an exception occurs during transformation it will be called
+  with the thrown value as an argument, and any non-nil return value will be placed
+  in the channel."
   ([] (chan nil))
-  ([buf-or-n]
-     (let [buf-or-n (if (= buf-or-n 0)
-                      nil
-                      buf-or-n)]
-       (channels/chan (if (number? buf-or-n)
-                        (buffer buf-or-n)
-                        buf-or-n)))))
+  ([buf-or-n] (chan buf-or-n nil nil))
+  ([buf-or-n xform] (chan buf-or-n xform nil))
+  ([buf-or-n xform ex-handler]
+   (let [buf-or-n (if (= buf-or-n 0)
+                    nil
+                    buf-or-n)]
+     (when xform (assert buf-or-n "buffer must be supplied when transducer is"))
+     (channels/chan (if (number? buf-or-n)
+                      (buffer buf-or-n)
+                      buf-or-n)
+                    xform
+                    ex-handler))))
 
 (defn timeout
   "Returns a channel that will close after msecs"
@@ -60,7 +71,7 @@
   return nil if closed. Will park if nothing is available.
   Returns true unless port is already closed"
   [port]
-  (assert nil "<! used not in (go ...) block"))
+  (throw (js/Error. "<! used not in (go ...) block")))
 
 (defn take!
   "Asynchronously takes a val from port, passing to fn1. Will pass nil
@@ -85,7 +96,7 @@
   inside a (go ...) block. Will park if no buffer space is available.
   Returns true unless port is already closed."
   [port val]
-  (assert nil ">! used not in (go ...) block"))
+  (throw (js/Error. ">! used not in (go ...) block")))
 
 (defn put!
   "Asynchronously puts a val into port, calling fn0 (if supplied) when
@@ -192,148 +203,9 @@
   depended upon for side effects."
 
   [ports & {:as opts}]
-  (assert nil "alts! used not in (go ...) block"))
+  (throw (js/Error. "alts! used not in (go ...) block")))
 
 ;;;;;;; channel ops
-
-
-(defn map<
-  "Takes a function and a source channel, and returns a channel which
-  contains the values produced by applying f to each value taken from
-  the source channel"
-  [f ch]
-  (reify
-   impl/Channel
-   (close! [_] (impl/close! ch))
-   (closed? [_] (impl/closed? ch))
-
-   impl/ReadPort
-   (take! [_ fn1]
-     (let [ret
-       (impl/take! ch
-         (reify
-          impl/Handler
-          (active? [_] (impl/active? fn1))
-          (lock-id [_] (impl/lock-id fn1))
-          (commit [_]
-           (let [f1 (impl/commit fn1)]
-             #(f1 (if (nil? %) nil (f %)))))))]
-       (if (and ret (not (nil? @ret)))
-         (channels/box (f @ret))
-         ret)))
-
-   impl/WritePort
-   (put! [_ val fn1] (impl/put! ch val fn1))))
-
-(defn map>
-  "Takes a function and a target channel, and returns a channel which
-  applies f to each value before supplying it to the target channel."
-  [f ch]
-  (reify
-   impl/Channel
-   (close! [_] (impl/close! ch))
-
-   impl/ReadPort
-   (take! [_ fn1] (impl/take! ch fn1))
-
-   impl/WritePort
-   (put! [_ val fn1]
-     (impl/put! ch (f val) fn1))))
-
-
-
-(defn filter>
-  "Takes a predicate and a target channel, and returns a channel which
-  supplies only the values for which the predicate returns true to the
-  target channel."
-  [p ch]
-  (reify
-   impl/Channel
-   (close! [_] (impl/close! ch))
-   (closed? [_] (impl/closed? ch))
-
-   impl/ReadPort
-   (take! [_ fn1] (impl/take! ch fn1))
-
-   impl/WritePort
-   (put! [_ val fn1]
-    (if (p val)
-      (impl/put! ch val fn1)
-      (channels/box (not (impl/closed? ch)))))))
-
-(defn remove>
-  "Takes a predicate and a target channel, and returns a channel which
-  supplies only the values for which the predicate returns false to the
-  target channel."
-  [p ch]
-  (filter> (complement p) ch))
-
-(defn filter<
-  "Takes a predicate and a source channel, and returns a channel which
-  contains only the values taken from the source channel for which the
-  predicate returns true. The returned channel will be unbuffered by
-  default, or a buf-or-n can be supplied. The channel will close
-  when the source channel closes."
-  ([p ch] (filter< p ch nil))
-  ([p ch buf-or-n]
-     (let [out (chan buf-or-n)]
-       (go-loop []
-         (let [val (<! ch)]
-           (if (nil? val)
-             (close! out)
-             (do (when (p val)
-                   (>! out val))
-                 (recur)))))
-       out)))
-
-(defn remove<
-  "Takes a predicate and a source channel, and returns a channel which
-  contains only the values taken from the source channel for which the
-  predicate returns false. The returned channel will be unbuffered by
-  default, or a buf-or-n can be supplied. The channel will close
-  when the source channel closes."
-  ([p ch] (remove< p ch nil))
-  ([p ch buf-or-n] (filter< (complement p) ch buf-or-n)))
-
-(defn- mapcat* [f in out]
-  (go-loop []
-    (let [val (<! in)]
-      (if (nil? val)
-        (close! out)
-        (do (doseq [v (f val)]
-              (>! out v))
-            (when-not (impl/closed? out)
-              (recur)))))))
-
-(defn mapcat<
-  "Takes a function and a source channel, and returns a channel which
-  contains the values in each collection produced by applying f to
-  each value taken from the source channel. f must return a
-  collection.
-
-  The returned channel will be unbuffered by default, or a buf-or-n
-  can be supplied. The channel will close when the source channel
-  closes."
-  ([f in] (mapcat< f in nil))
-  ([f in buf-or-n]
-    (let [out (chan buf-or-n)]
-      (mapcat* f in out)
-      out)))
-
-(defn mapcat>
-  "Takes a function and a target channel, and returns a channel which
-  applies f to each value put, then supplies each element of the result
-  to the target channel. f must return a collection.
-
-  The returned channel will be unbuffered by default, or a buf-or-n
-  can be supplied. The target channel will be closed when the source
-  channel closes."
-
-  ([f out] (mapcat> f out nil))
-  ([f out buf-or-n]
-     (let [in (chan buf-or-n)]
-       (mapcat* f in out)
-       in)))
 
 (defn pipe
   "Takes elements from the from channel and supplies them to the to
@@ -350,6 +222,88 @@
           (when (>! to v)
               (recur)))))
      to))
+
+(defn- pipeline*
+  ([n to xf from close? ex-handler type]
+     (assert (pos? n))
+     (let [jobs (chan n)
+           results (chan n)
+           process (fn [[v p :as job]]
+                     (if (nil? job)
+                       (do (close! results) nil)
+                       (let [res (chan 1 xf ex-handler)]
+                         (go
+                           (>! res v)
+                           (close! res))
+                         (put! p res)
+                         true)))
+           async (fn [[v p :as job]]
+                   (if (nil? job)
+                     (do (close! results) nil)
+                     (let [res (chan 1)]
+                       (xf v res)
+                       (put! p res)
+                       true)))]
+       (dotimes [_ n]
+         (case type
+           :compute  (go-loop []
+                               (let [job (<! jobs)]
+                                 (when (process job)
+                                   (recur))))
+           :async (go-loop []
+                           (let [job (<! jobs)]
+                             (when (async job)
+                               (recur))))))
+       (go-loop []
+                  (let [v (<! from)]
+                    (if (nil? v)
+                      (close! jobs)
+                      (let [p (chan 1)]
+                        (>! jobs [v p])
+                        (>! results p)
+                        (recur)))))
+       (go-loop []
+                  (let [p (<! results)]
+                    (if (nil? p)
+                      (when close? (close! to))
+                      (let [res (<! p)]
+                        (loop []
+                          (let [v (<! res)]
+                            (when (and (not (nil? v)) (>! to v))
+                              (recur))))
+                        (recur))))))))
+
+(defn pipeline-async
+  "Takes elements from the from channel and supplies them to the to
+  channel, subject to the async function af, with parallelism n. af
+  must be a function of two arguments, the first an input value and
+  the second a channel on which to place the result(s). af must close!
+  the channel before returning.  The presumption is that af will
+  return immediately, having launched some asynchronous operation
+  whose completion/callback will manipulate the result channel. Outputs
+  will be returned in order relative to  the inputs. By default, the to
+  channel will be closed when the from channel closes, but can be
+  determined by the close?  parameter. Will stop consuming the from
+  channel if the to channel closes."
+  ([n to af from] (pipeline-async n to af from true))
+  ([n to af from close?] (pipeline* n to af from close? nil :async)))
+
+(defn pipeline
+  "Takes elements from the from channel and supplies them to the to
+  channel, subject to the transducer xf, with parallelism n. Because
+  it is parallel, the transducer will be applied independently to each
+  element, not across elements, and may produce zero or more outputs
+  per input.  Outputs will be returned in order relative to the
+  inputs. By default, the to channel will be closed when the from
+  channel closes, but can be determined by the close?  parameter. Will
+  stop consuming the from channel if the to channel closes.
+
+  Note this is supplied for API compatibility with the Clojure version.
+  Values of N > 1 will not result in actual concurrency in a
+  single-threaded runtime."
+  ([n to xf from] (pipeline n to xf from true))
+  ([n to xf from close?] (pipeline n to xf from close? nil))
+  ([n to xf from close? ex-handler] (pipeline* n to xf from close? ex-handler :compute)))
 
 (defn split
   "Takes a predicate and a source channel and returns a vector of two
@@ -454,7 +408,7 @@
            (reset! dctr (count chs))
            (doseq [c chs]
                (when-not (put! c val done)
-                 (swap! dctr dec)
+                 (done nil)
                  (untap* m c)))
            ;;wait for all
            (when (seq chs)
@@ -485,6 +439,17 @@
   (unmix-all* [m])
   (toggle* [m state-map])
   (solo-mode* [m mode]))
+
+(defn ioc-alts! [state cont-block ports & {:as opts}]
+  (ioc/aset-all! state helpers/STATE-IDX cont-block)
+  (when-let [cb (cljs.core.async/do-alts
+                  (fn [val]
+                    (ioc/aset-all! state helpers/VALUE-IDX val)
+                    (helpers/run-state-machine-wrapped state))
+                  ports
+                  opts)]
+    (ioc/aset-all! state helpers/VALUE-IDX @cb)
+    :recur))
 
 (defn mix
   "Creates and returns a mix of one or more input channels which will
@@ -643,8 +608,9 @@
                (close! (muxch* m)))
              (let [topic (topic-fn val)
                    m (get @mults topic)]
-               (when-not (>! (muxch* m) val)
-                 (swap! mults dissoc topic))
+               (when m
+                 (when-not (>! (muxch* m) val)
+                   (swap! mults dissoc topic)))
                (recur)))))
        p)))
 
@@ -730,7 +696,6 @@
   [coll ch]
   (reduce conj coll ch))
 
-
 (defn take
   "Returns a channel that will return, at most, n items from ch. After n items
    have been returned, or ch has been closed, the return chanel will close.
@@ -749,12 +714,117 @@
            (close! out))
        out)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; deprecated - do not use ;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn map<
+  "Deprecated - this function will be removed. Use transducer instead"
+  [f ch]
+  (reify
+   impl/Channel
+   (close! [_] (impl/close! ch))
+   (closed? [_] (impl/closed? ch))
+
+   impl/ReadPort
+   (take! [_ fn1]
+     (let [ret
+       (impl/take! ch
+         (reify
+          impl/Handler
+          (active? [_] (impl/active? fn1))
+          #_(lock-id [_] (impl/lock-id fn1))
+          (commit [_]
+           (let [f1 (impl/commit fn1)]
+             #(f1 (if (nil? %) nil (f %)))))))]
+       (if (and ret (not (nil? @ret)))
+         (channels/box (f @ret))
+         ret)))
+
+   impl/WritePort
+   (put! [_ val fn1] (impl/put! ch val fn1))))
+
+(defn map>
+  "Deprecated - this function will be removed. Use transducer instead"
+  [f ch]
+  (reify
+   impl/Channel
+   (close! [_] (impl/close! ch))
+
+   impl/ReadPort
+   (take! [_ fn1] (impl/take! ch fn1))
+
+   impl/WritePort
+   (put! [_ val fn1]
+     (impl/put! ch (f val) fn1))))
+
+(defn filter>
+  "Deprecated - this function will be removed. Use transducer instead"
+  [p ch]
+  (reify
+   impl/Channel
+   (close! [_] (impl/close! ch))
+   (closed? [_] (impl/closed? ch))
+
+   impl/ReadPort
+   (take! [_ fn1] (impl/take! ch fn1))
+
+   impl/WritePort
+   (put! [_ val fn1]
+    (if (p val)
+      (impl/put! ch val fn1)
+      (channels/box (not (impl/closed? ch)))))))
+
+(defn remove>
+  "Deprecated - this function will be removed. Use transducer instead"
+  [p ch]
+  (filter> (complement p) ch))
+
+(defn filter<
+  "Deprecated - this function will be removed. Use transducer instead"
+  ([p ch] (filter< p ch nil))
+  ([p ch buf-or-n]
+     (let [out (chan buf-or-n)]
+       (go-loop []
+         (let [val (<! ch)]
+           (if (nil? val)
+             (close! out)
+             (do (when (p val)
+                   (>! out val))
+                 (recur)))))
+       out)))
+
+(defn remove<
+  "Deprecated - this function will be removed. Use transducer instead"
+  ([p ch] (remove< p ch nil))
+  ([p ch buf-or-n] (filter< (complement p) ch buf-or-n)))
+
+(defn- mapcat* [f in out]
+  (go-loop []
+    (let [val (<! in)]
+      (if (nil? val)
+        (close! out)
+        (do (doseq [v (f val)]
+              (>! out v))
+            (when-not (impl/closed? out)
+              (recur)))))))
+
+(defn mapcat<
+  "Deprecated - this function will be removed. Use transducer instead"
+  ([f in] (mapcat< f in nil))
+  ([f in buf-or-n]
+    (let [out (chan buf-or-n)]
+      (mapcat* f in out)
+      out)))
+
+(defn mapcat>
+  "Deprecated - this function will be removed. Use transducer instead"
+  ([f out] (mapcat> f out nil))
+  ([f out buf-or-n]
+     (let [in (chan buf-or-n)]
+       (mapcat* f in out)
+       in)))
 
 (defn unique
-  "Returns a channel that will contain values from ch. Consecutive duplicate
-   values will be dropped.
-
-  The output channel is unbuffered by default, unless buf-or-n is given."
+  "Deprecated - this function will be removed. Use transducer instead"
   ([ch]
      (unique ch nil))
   ([ch buf-or-n]
@@ -769,13 +839,8 @@
            (close! out))
        out)))
 
-
 (defn partition
-  "Returns a channel that will contain vectors of n items taken from ch. The
-   final vector in the return channel may be smaller than n if ch closed before
-   the vector could be completely filled.
-
-   The output channel is unbuffered by default, unless buf-or-n is given"
+  "Deprecated - this function will be removed. Use transducer instead"
   ([n ch]
      (partition n ch nil))
   ([n ch buf-or-n]
@@ -797,11 +862,7 @@
 
 
 (defn partition-by
-  "Returns a channel that will contain vectors of items taken from ch. New
-   vectors will be created whenever (f itm) returns a value that differs from
-   the previous item's (f itm).
-
-  The output channel is unbuffered, unless buf-or-n is given"
+  "Deprecated - this function will be removed. Use transducer instead"
   ([f ch]
      (partition-by f ch nil))
   ([f ch buf-or-n]

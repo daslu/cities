@@ -1,12 +1,13 @@
 (ns reagent.ratom
   (:refer-clojure :exclude [atom])
-  (:require-macros [reagent.debug :refer (dbg)]))
+  (:require-macros [reagent.debug :refer (dbg log dev?)])
+  (:require [reagent.impl.util :as util]))
 
 (declare ^:dynamic *ratom-context*)
 
-(def debug false)
+(defonce debug false)
 
-(def -running (clojure.core/atom 0))
+(defonce -running (clojure.core/atom 0))
 
 (defn running [] @-running)
 
@@ -87,6 +88,77 @@
   ([x] (RAtom. x nil nil nil))
   ([x & {:keys [meta validator]}] (RAtom. x meta validator nil)))
 
+(declare make-reaction)
+
+(defn peek-at [a path]
+  (binding [*ratom-context* nil]
+    (get-in @a path)))
+
+
+(deftype RCursor [path ratom setf ^:mutable reaction]
+  IAtom
+
+  IEquiv
+  (-equiv [o other]
+    (and (instance? RCursor other)
+         (= path (.-path other))
+         (= ratom (.-ratom other))
+         (= setf (.-setf other))))
+
+  IDeref
+  (-deref [this]
+    (if (nil? *ratom-context*)
+      (get-in @ratom path)
+      (do
+        (if (nil? reaction)
+          (set! reaction (make-reaction #(get-in @ratom path))))
+        @reaction)))
+
+  IReset
+  (-reset! [a new-value]
+    (if (nil? setf)
+      (swap! ratom assoc-in path new-value)
+      (setf new-value)))
+
+  ISwap
+  (-swap! [a f]
+    (-reset! a (f (peek-at ratom path))))
+  (-swap! [a f x]
+    (-reset! a (f (peek-at ratom path) x)))
+  (-swap! [a f x y]
+    (-reset! a (f (peek-at ratom path) x y)))
+  (-swap! [a f x y more]
+    (-reset! a (apply f (peek-at ratom path) x y more)))
+
+  IPrintWithWriter
+  (-pr-writer [a writer opts]
+    ;; not sure about how this should be implemented?
+    ;; should it print as an atom focused on the appropriate part of
+    ;; the ratom - (pr-writer (get-in @ratom path)) - or should it be
+    ;; a completely separate type? and do we need a reader for it?
+    (-write writer "#<Cursor: ")
+    (pr-writer path writer opts)
+    (-write writer " ")
+    (pr-writer ratom writer opts)
+    (-write writer ">"))
+
+  IWatchable
+  (-notify-watches [this oldval newval]
+    (-notify-watches ratom oldval newval))
+  (-add-watch [this key f]
+    (-add-watch ratom key f))
+  (-remove-watch [this key]
+    (-remove-watch ratom key))
+
+  IHash
+  (-hash [this] (hash [ratom path setf])))
+
+(defn cursor
+  ([path ra]
+     (RCursor. path ra nil nil))
+  ([path ra setf args]
+     (RCursor. path ra
+               (util/partial-ifn. setf args nil) nil)))
 
 (defprotocol IDisposable
   (dispose! [this]))

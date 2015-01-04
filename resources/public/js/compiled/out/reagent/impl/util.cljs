@@ -1,21 +1,12 @@
 (ns reagent.impl.util
   (:require [reagent.debug :refer-macros [dbg log]]
-            [reagent.impl.reactimport :as reactimport]
+            [reagent.interop :refer-macros [.' .!]]
             [clojure.string :as string]))
 
-(def is-client (not (nil? (try (.-document js/window)
-                               (catch js/Object e nil)))))
-
-(def React reactimport/React)
+(def is-client (and (exists? js/window)
+                    (-> js/window (.' :document) nil? not)))
 
 ;;; Props accessors
-
-(def props "props")
-(def cljs-level "cljsLevel")
-(def cljs-argv "cljsArgv")
-
-(defn js-props [C]
-  (aget C props))
 
 (defn extract-props [v]
   (let [p (nth v 1 nil)]
@@ -27,18 +18,23 @@
     (if (> (count v) first-child)
       (subvec v first-child))))
 
-(defn get-argv [C]
-  (-> C (aget props) (aget cljs-argv)))
+(defn get-argv [c]
+  (.' c :props.argv))
 
-(defn get-props [C]
-  (-> C (aget props) (aget cljs-argv) extract-props))
+(defn get-props [c]
+  (-> (.' c :props.argv) extract-props))
 
-(defn get-children [C]
-  (-> C (aget props) (aget cljs-argv) extract-children))
+(defn get-children [c]
+  (-> (.' c :props.argv) extract-children))
 
-(defn reagent-component? [C]
-  (-> C get-argv nil? not))
+(defn reagent-component? [c]
+  (-> (.' c :props.argv) nil? not))
 
+(defn cached-react-class [c]
+  (.' c :cljsReactClass))
+
+(defn cache-react-class [c constructor]
+  (.! c :cljsReactClass constructor))
 
 ;; Misc utilities
 
@@ -80,13 +76,6 @@
   IHash
   (-hash [_] (hash [f args])))
 
-; patch for CLJS-777; Can be replaced with clojure.core/ifn? after updating
-; ClojureScript to a version that includes the fix:
-; https://github.com/clojure/clojurescript/commit/525154f2a4874cf3b88ac3d5755794de425a94cb
-(defn clj-ifn? [x]
-  (or (ifn? x)
-      (satisfies? IMultiFn x)))
-
 (defn- merge-class [p1 p2]
   (let [class (when-let [c1 (:class p1)]
                 (when-let [c2 (:class p2)]
@@ -111,45 +100,88 @@
       (merge-style p1 (merge-class p1 (merge p1 p2))))))
 
 
-;;; Helpers for shouldComponentUpdate
+(def ^:dynamic *always-update* false)
 
-(def -not-found (js-obj))
+(defonce roots (atom {}))
 
-(defn identical-ish? [x y]
-  (or (keyword-identical? x y)
-      (and (or (symbol? x)
-               (identical? (type x) partial-ifn))
-           (= x y))))
+(defn clear-container [node]
+  ;; If render throws, React may get confused, and throw on
+  ;; unmount as well, so try to force React to start over.
+  (try
+    (.' js/React unmountComponentAtNode node)
+    (catch js/Object e
+      (do (log "Error unmounting:")
+          (log e)))))
 
-(defn shallow-equal-maps [x y]
-  ;; Compare two maps, using identical-ish? on all values
-  (or (identical? x y)
-      (and (map? x)
-           (map? y)
-           (== (count x) (count y))
-           (reduce-kv (fn [res k v]
-                        (let [yv (get y k -not-found)]
-                          (if (or (identical? v yv)
-                                  (identical-ish? v yv)
-                                  ;; Handle :style maps specially
-                                  (and (keyword-identical? k :style)
-                                       (shallow-equal-maps v yv)))
-                            res
-                            (reduced false))))
-                      true x))))
+(defn render-component [comp container callback]
+  (try
+    (binding [*always-update* true]
+      (.' js/React render (comp) container
+          (fn []
+            (binding [*always-update* false]
+              (swap! roots assoc container [comp container])
+              (if (some? callback)
+                (callback))))))
+    (catch js/Object e
+      (do (clear-container container)
+          (throw e)))))
 
-(defn equal-args [v1 v2]
-  ;; Compare two vectors using identical-ish?
-  (assert (vector? v1))
-  (assert (vector? v2))
-  (or (identical? v1 v2)
-      (and (== (count v1) (count v2))
-           (reduce-kv (fn [res k v]
-                        (let [v' (nth v2 k)]
-                          (if (or (identical? v v')
-                                  (identical-ish? v v')
-                                  (and (map? v)
-                                       (shallow-equal-maps v v')))
-                            res
-                            (reduced false))))
-                      true v1))))
+(defn re-render-component [comp container]
+  (render-component comp container nil))
+
+(defn unmount-component-at-node [container]
+  (swap! roots dissoc container)
+  (.' js/React unmountComponentAtNode container))
+
+(defn force-update-all []
+  (doseq [v (vals @roots)]
+    (apply re-render-component v))
+  "Updated")
+
+
+;;; Wrapper
+
+(deftype Wrapper [^:mutable state callback ^:mutable changed]
+
+  IAtom
+
+  IDeref
+  (-deref [this] state)
+
+  IReset
+  (-reset! [this newval]
+           (set! changed true)
+           (set! state newval)
+           (callback newval)
+           state)
+
+  ISwap
+  (-swap! [a f]
+    (-reset! a (f state)))
+  (-swap! [a f x]
+    (-reset! a (f state x)))
+  (-swap! [a f x y]
+    (-reset! a (f state x y)))
+  (-swap! [a f x y more]
+    (-reset! a (apply f state x y more)))
+
+  IEquiv
+  (-equiv [_ other]
+          (and (instance? Wrapper other)
+               ;; If either of the wrappers have changed, equality
+               ;; cannot be relied on.
+               (not changed)
+               (not (.-changed other))
+               (= state (.-state other))
+               (= callback (.-callback other))))
+
+  IPrintWithWriter
+  (-pr-writer [_ writer opts]
+    (-write writer "#<wrap: ")
+    (pr-writer state writer opts)
+    (-write writer ">")))
+
+(defn make-wrapper [value callback-fn args]
+  (Wrapper. value
+            (partial-ifn. callback-fn args nil)
+            false))
