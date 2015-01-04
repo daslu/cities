@@ -244,59 +244,60 @@
                            :react-key id ;; ensure React knows this is non-reusable
                            :ref id ;; label it so we can retrieve it via get-node
                            :id id}])
-        do-render! (fn [] (let [n (.getElementById js/document id)
-                               spec (cond
-                                     ;;;;
-                                     (#{:left :right} side)
-                                    (get-chart (-> @doc side :code)
-                                               :freq
-                                               (:char @doc)
-                                               (:val @doc)
-                                               (get-period (select-keys @doc
-                                                                        [:period-type
-                                                                         :chosen-period])))
-                                    ;;;;
-                                    (= :comparison side)
-                                      (get-comparison-chart
-                                       (into {}
-                                             (for [side [:left :right]]
-                                               (let [cities-map (get-data [:cities-map])
-                                                     city-code (-> @doc side :code)
-                                                     city (-> city-code cities-map :name)]
-                                                 [city-code city])))
-                                       :freq
-                                       (:char @doc)
-                                       (:val @doc)
-                                       (get-period (select-keys @doc
-                                                                [:period-type
-                                                                 :chosen-period])))
-                                      ;;;;
-                                      (= :scatter side)
-                                      (let [val (:val @doc)
-                                            char (:char @doc)
-                                            profile {:column-name (char-to-key char)
-                                                     :period (get-period (select-keys @doc
-                                                                                      [:period-type
-                                                                                       :chosen-period]))
-                                                     :val val}
-                                            cities-map (get-data [:cities-map])
-                                            proportions (get-data [:proportions profile])
-                                            colors (get-data [:colors profile])
-                                            data (vec
-                                                  (for [city (vals cities-map)]
-                                                    (let [code (:code city)]
-                                                      {:x (or (proportions code)
-                                                              0)
-                                                       :y (:y city)
-                                                       :size (* 10 (Math/sqrt (:freq city)))
-                                                       :color (colors code)
-                                                       :name (:name city)})))]
-                                        (get-scatter-chart
-                                         cities-map char val proportions colors data)))]
-                           (while (.hasChildNodes n)
-                             (.removeChild n (.-lastChild n)))
-                           (draw-chart (get-chart-spec-with-id
-                                        id spec))))]
+        do-render! (fn [] (go
+                           (let [n (.getElementById js/document id)
+                                 spec (cond
+;;;;
+                                        (#{:left :right} side)
+                                        (get-chart (-> @doc side :code)
+                                                   :freq
+                                                   (:char @doc)
+                                                   (:val @doc)
+                                                   (get-period (select-keys @doc
+                                                                            [:period-type
+                                                                             :chosen-period])))
+;;;;
+                                        (= :comparison side)
+                                        (get-comparison-chart
+                                         (into {}
+                                               (for [side [:left :right]]
+                                                 (let [cities-map (get-data [:cities-map])
+                                                       city-code (-> @doc side :code)
+                                                       city (-> city-code cities-map :name)]
+                                                   [city-code city])))
+                                         :freq
+                                         (:char @doc)
+                                         (:val @doc)
+                                         (get-period (select-keys @doc
+                                                                  [:period-type
+                                                                   :chosen-period])))
+;;;;
+                                        (= :scatter side)
+                                        (let [val (:val @doc)
+                                              char (:char @doc)
+                                              profile {:column-name (char-to-key char)
+                                                       :period (get-period (select-keys @doc
+                                                                                        [:period-type
+                                                                                         :chosen-period]))
+                                                       :val val}
+                                              cities-map (get-data [:cities-map])
+                                              proportions (get-data [:proportions profile])
+                                              colors (get-data [:colors profile])
+                                              data (vec
+                                                    (for [city (vals cities-map)]
+                                                      (let [code (:code city)]
+                                                        {:x (or (proportions code)
+                                                                0)
+                                                         :y (:y city)
+                                                         :size (* 10 (Math/sqrt (:freq city)))
+                                                         :color (colors code)
+                                                         :name (:name city)})))]
+                                          (get-scatter-chart
+                                           cities-map char val proportions colors data)))]
+                             (while (.hasChildNodes n)
+                               (.removeChild n (.-lastChild n)))
+                             (draw-chart (get-chart-spec-with-id
+                                          id spec)))))]
     (reagent/create-class
      {:render setup
       :component-did-mount do-render!
