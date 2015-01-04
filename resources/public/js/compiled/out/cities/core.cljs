@@ -671,16 +671,15 @@
           "scatter"
           :scatter
           @doc]]]]
-      [cities-component @doc]])
-   ])
+      [cities-component @doc]])])
 
 ;; start the app
 
-(fw/watch-and-reload
-   :jsload-callback (fn []
-                      (reagent/render-component [app]
-                                                (.getElementById js/document "main-area"))))
+;; (fw/watch-and-reload
+;;    :jsload-callback (fn []
+;;                       (reagent/render-component [app]
+;;                                                 (.getElementById js/document "main-area"))))
 
 
-;; (reagent/render-component [app]
-;;                             (.getElementById js/document "main-area"))
+(reagent/render-component [app]
+                            (.getElementById js/document "main-area"))
